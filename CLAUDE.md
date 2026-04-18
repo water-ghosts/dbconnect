@@ -27,8 +27,7 @@ If that proves not to be true, that will itself be a learning experience 🙂)
 
 # Tech stack
 
-- Target the latest stable version of Zig. Since Zig is a pre-release language, I accept
-    that this will require rewriting things as the language evolves.
+- Zig 0.15 (I will update to 0.16 once the official documentation is more up to date)
 
 - ODBC is the interface layer between this code and the Snowflake database. I intentionally
     choose to write my own bindings rather than use existing ones.
@@ -92,7 +91,7 @@ If that proves not to be true, that will itself be a learning experience 🙂)
     Once a query is executed, the results are stored in a "datastore" for in-memory
     manipulation. For example, if there's a Revenue column and a Sessions column, it
     should be trivial to define a new Revenue/Session column as a direct function of
-    those two.
+    those two. Datastores are column-oriented, not row-oriented.
 
 - database_connector.zig - Using ODBC under the hood, this provides an interface which 
     takes a SQL query and returns a Datastore representing the results, analogous to 
@@ -208,3 +207,7 @@ as a pain point I would like to redesign.
 -`zig build` to build
 
 -`./zig-out/bin/dbconnect` to run
+
+# Further Reading
+
+- https://www.markhansen.co.nz/book-data-oriented-design/

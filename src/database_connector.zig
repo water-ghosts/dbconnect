@@ -97,14 +97,25 @@ pub const DatabaseConnection = struct {
         const raw_connection_string_output = std.mem.zeroes([1024]u8);
         var connection_string_output_length: c.SQLSMALLINT = 1024;
 
-        // /* Allocate an environment handle */
-        _ = c.SQLAllocHandle(c.SQL_HANDLE_ENV, null, &environmentHandle);
+        sql_response = c.SQLAllocHandle(c.SQL_HANDLE_ENV, null, &environmentHandle);
+        if (!c.SQL_SUCCEEDED(sql_response)) {
+            _ = c.printf("Failed to allocate ODBC environment handle (return code: %d)\n", sql_response);
+            return error.GeneralError;
+        }
 
-        // /* We want ODBC 3 support */
-        _ = c.SQLSetEnvAttr(environmentHandle, c.SQL_ATTR_ODBC_VERSION, @ptrFromInt(c.SQL_OV_ODBC3), 0);
+        sql_response = c.SQLSetEnvAttr(environmentHandle, c.SQL_ATTR_ODBC_VERSION, @ptrFromInt(c.SQL_OV_ODBC3), 0);
+        if (!c.SQL_SUCCEEDED(sql_response)) {
+            _ = c.printf("Failed to set ODBC version attribute (return code: %d)\n", sql_response);
+            printODBCDiagnostics(c.SQL_HANDLE_ENV, environmentHandle);
+            return error.GeneralError;
+        }
 
-        // /* Allocate a connection handle */
-        _ = c.SQLAllocHandle(c.SQL_HANDLE_DBC, environmentHandle, &connectionHandle);
+        sql_response = c.SQLAllocHandle(c.SQL_HANDLE_DBC, environmentHandle, &connectionHandle);
+        if (!c.SQL_SUCCEEDED(sql_response)) {
+            _ = c.printf("Failed to allocate ODBC connection handle (return code: %d)\n", sql_response);
+            printODBCDiagnostics(c.SQL_HANDLE_ENV, environmentHandle);
+            return error.GeneralError;
+        }
 
         const c_connection_string = try allocator.dupeZ(u8, connection_string);
         defer allocator.free(c_connection_string);
@@ -115,6 +126,8 @@ pub const DatabaseConnection = struct {
         sql_response = c.SQLDriverConnect(connectionHandle, null, c_connection_string, c.SQL_NTS, connection_string_output, 1024, &connection_string_output_length, c.SQL_DRIVER_COMPLETE);
 
         if (!c.SQL_SUCCEEDED(sql_response)) {
+            _ = c.printf("SQLDriverConnect failed (return code: %d)\n", sql_response);
+            printODBCDiagnostics(c.SQL_HANDLE_DBC, connectionHandle);
             return error.GeneralError;
         }
 
@@ -291,8 +304,6 @@ pub fn executeQuery(allocator: std.mem.Allocator, connection: DatabaseConnection
     _ = c.SQLAllocHandle(c.SQL_HANDLE_STMT, connection.connectionHandle, &statementHandle);
     defer _ = c.SQLFreeHandle(c.SQL_HANDLE_STMT, statementHandle);
 
-    _ = c.printf("About to run the query...\n");
-
     // Run the query
     const real_query = try allocator.dupeZ(u8, query);
     defer allocator.free(real_query);
@@ -303,20 +314,15 @@ pub fn executeQuery(allocator: std.mem.Allocator, connection: DatabaseConnection
         return DatabaseError.GeneralError;
     }
 
-    _ = c.printf("About to get column data. ..\n");
-
     // Get data on columns
     var column_data = try getColumnData(allocator, statementHandle);
     defer column_data.deinit(allocator);
-
-    _ = c.printf("About to get column data...\n");
 
     // Create builders and feeders
     var bf = try createBuildersAndFeeders(allocator, column_data);
     defer bf.builders.deinit(allocator);
     defer bf.feeders.deinit(allocator);
 
-    _ = c.printf("About to make feeders...\n");
     // Bind feeders to ODBC
     for (bf.feeders.items) |*feeder| {
         const value_pointer = feeder.getValuePointer();
@@ -327,8 +333,6 @@ pub fn executeQuery(allocator: std.mem.Allocator, connection: DatabaseConnection
     }
 
     var num_rows: usize = 0;
-
-    _ = c.printf("About to fetch...\n");
 
     // For each row, ODBC writes to feeder buffers, then feeders push to builders
     while (c.SQL_SUCCEEDED(c.SQLFetch(statementHandle))) {

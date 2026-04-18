@@ -77,6 +77,10 @@ pub const ResizableBuffer = struct {
     }
 };
 
+pub fn stringsMatch(first: String, second: String) bool {
+    return std.mem.eql(u8, first, second);
+}
+
 // TODO: Clean this up. If you pass a new allocator there's no way to know which one to use for deinit.
 pub fn quoteForCsv(allocator: std.mem.Allocator, input: String, buffer: *MutString) !String {
     buffer.clearRetainingCapacity();
@@ -176,3 +180,61 @@ pub const StringBuilder = struct {
         self.buffer.clearRetainingCapacity();
     }
 };
+
+pub fn readFileToBuffer(filepath: []const u8, buffer: *ResizableBuffer) !void {
+    const file = try std.fs.cwd().openFile(filepath, .{});
+    defer file.close();
+
+    buffer.clear();
+
+    // Read file in chunks
+    var read_buffer: [4096]u8 = undefined;
+    while (true) {
+        const bytes_read = try file.read(&read_buffer);
+        if (bytes_read == 0) break;
+
+        buffer.appendSlice(read_buffer[0..bytes_read]);
+    }
+}
+
+pub fn startsWith(str: String, char: u8) bool {
+    return str.len > 0 and str[0] == char;
+}
+
+pub fn endsWith(str: String, char: u8) bool {
+    return str.len > 0 and str[str.len - 1] == char;
+}
+
+// TODO: Simplify this by writing to a provided buffer, hopefully avoiding allocation
+pub fn resolveFilepath(allocator: std.mem.Allocator, rawFilepath: String, defaultDirectory: String) !String {
+    const filepath = std.mem.trim(u8, rawFilepath, &std.ascii.whitespace);
+
+    // Check if the filepath is absolute (starts with '/' on Unix)
+    if (startsWith(filepath, '/')) {
+        // Absolute path - return a copy
+        return try allocator.dupe(u8, filepath);
+    }
+
+    // Relative path - concatenate with defaultDirectory
+    // Ensure defaultDirectory ends with '/' if it doesn't already
+    const needsSlash = !endsWith(defaultDirectory, '/');
+    const totalLen = defaultDirectory.len + (if (needsSlash) @as(usize, 1) else 0) + filepath.len;
+
+    const resolved = try allocator.alloc(u8, totalLen);
+    var pos: usize = 0;
+
+    // Copy defaultDirectory
+    @memcpy(resolved[pos..][0..defaultDirectory.len], defaultDirectory);
+    pos += defaultDirectory.len;
+
+    // Add separator if needed
+    if (needsSlash) {
+        resolved[pos] = '/';
+        pos += 1;
+    }
+
+    // Copy filepath
+    @memcpy(resolved[pos..][0..filepath.len], filepath);
+
+    return resolved;
+}

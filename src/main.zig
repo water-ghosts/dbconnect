@@ -10,6 +10,8 @@ const CString = common.CString;
 const MutString = common.MutString;
 const ResizableBuffer = common.ResizableBuffer;
 
+const stringsMatch = common.stringsMatch;
+
 const CommandType = enum {
     INVALID_COMMAND,
     LOAD,
@@ -29,6 +31,78 @@ const ParsedCommand = struct {
 
 const Config = struct { connection_string: String, query_dir: String, query_log_dir: String };
 
+const ReplContext = struct {
+    persistent_allocator: std.mem.Allocator,
+    scratch_arena: std.heap.ArenaAllocator,
+    dataset: datastores.DataSet,
+    database_connection: db.DatabaseConnection,
+    query_dir: String,
+    query_log_dir: String,
+    stdin: std.fs.File,
+    stdout: std.fs.File,
+    raw_query_buffer: ResizableBuffer,
+    dataset_buffer: ResizableBuffer,
+
+    pub fn init(persistent_allocator: std.mem.Allocator) !ReplContext {
+        var scratch_arena = std.heap.ArenaAllocator.init(persistent_allocator);
+        const scratch_allocator = scratch_arena.allocator();
+
+        // Load config
+        const config_path = try getConfigPath(scratch_allocator);
+        const config = try parseConfig(scratch_allocator, config_path);
+
+        const query_dir = try persistent_allocator.dupe(u8, config.query_dir);
+        errdefer persistent_allocator.free(query_dir);
+
+        const query_log_dir = try persistent_allocator.dupe(u8, config.query_log_dir);
+        errdefer persistent_allocator.free(query_log_dir);
+
+        // Connect to DB, although maybe I want this optional?
+        const database_connection = try db.DatabaseConnection.init(persistent_allocator, config.connection_string);
+
+        var raw_query_buffer = try ResizableBuffer.init(persistent_allocator, 1024);
+        errdefer raw_query_buffer.deinit();
+        raw_query_buffer.appendSlice("<EMPTY>");
+
+        var dataset_buffer = try ResizableBuffer.init(persistent_allocator, 1024);
+        errdefer dataset_buffer.deinit();
+        dataset_buffer.appendSlice("<EMPTY>");
+
+        _ = scratch_arena.reset(.retain_capacity);
+
+        return ReplContext{
+            .persistent_allocator = persistent_allocator,
+            .scratch_arena = scratch_arena,
+            .dataset = datastores.NullDataset,
+            .database_connection = database_connection,
+            .query_dir = query_dir,
+            .query_log_dir = query_log_dir,
+            .stdin = std.fs.File.stdin(),
+            .stdout = std.fs.File.stdout(),
+            .raw_query_buffer = raw_query_buffer,
+            .dataset_buffer = dataset_buffer,
+        };
+    }
+
+    pub fn scratchAllocator(self: *ReplContext) std.mem.Allocator {
+        return self.scratch_arena.allocator();
+    }
+
+    pub fn endFrame(self: *ReplContext) void {
+        _ = self.scratch_arena.reset(.retain_capacity);
+    }
+
+    pub fn deinit(self: *ReplContext) void {
+        self.scratch_arena.deinit();
+        self.dataset.deinit();
+        self.database_connection.deinit();
+        self.persistent_allocator.free(self.query_dir);
+        self.persistent_allocator.free(self.query_log_dir);
+        self.raw_query_buffer.deinit();
+        self.dataset_buffer.deinit();
+    }
+};
+
 const CSV_PREVIEW_SIZE = 10;
 
 pub fn parseCommand(raw_command: String) ParsedCommand {
@@ -42,19 +116,19 @@ pub fn parseCommand(raw_command: String) ParsedCommand {
     const args = if (space_index) |idx| std.mem.trim(u8, command[idx + 1 ..], &std.ascii.whitespace) else "";
 
     // Determine command type based on first word
-    const verb = if (std.mem.eql(u8, first_word, "quit"))
+    const verb = if (stringsMatch(first_word, "quit"))
         CommandType.QUIT
-    else if (std.mem.eql(u8, first_word, "load"))
+    else if (stringsMatch(first_word, "load"))
         CommandType.LOAD
-    else if (std.mem.eql(u8, first_word, "open"))
+    else if (stringsMatch(first_word, "open"))
         CommandType.OPEN
-    else if (std.mem.eql(u8, first_word, "preview"))
+    else if (stringsMatch(first_word, "preview"))
         CommandType.PREVIEW
-    else if (std.mem.eql(u8, first_word, "print"))
+    else if (stringsMatch(first_word, "print"))
         CommandType.PRINT
-    else if (std.mem.eql(u8, first_word, "run"))
+    else if (stringsMatch(first_word, "run"))
         CommandType.RUN
-    else if (std.mem.eql(u8, first_word, "transpile"))
+    else if (stringsMatch(first_word, "transpile"))
         CommandType.TRANSPILE
     else
         CommandType.INVALID_COMMAND;
@@ -116,67 +190,6 @@ pub fn parseConfig(allocator: std.mem.Allocator, config_path: String) !Config {
     };
 }
 
-/// Reads the entire contents of a file into a string.
-/// The caller is responsible for freeing the returned memory using the same allocator.
-/// Assumes the file contains valid UTF-8 text.
-pub fn readFileToBuffer(filepath: []const u8, buffer: *ResizableBuffer) !void {
-    const file = try std.fs.cwd().openFile(filepath, .{});
-    defer file.close();
-
-    buffer.clear();
-
-    // Read file in chunks
-    var read_buffer: [4096]u8 = undefined;
-    while (true) {
-        const bytes_read = try file.read(&read_buffer);
-        if (bytes_read == 0) break;
-
-        buffer.appendSlice(read_buffer[0..bytes_read]);
-    }
-}
-
-pub fn startsWith(str: String, char: u8) bool {
-    return str.len > 0 and str[0] == char;
-}
-
-pub fn endsWith(str: String, char: u8) bool {
-    return str.len > 0 and str[str.len - 1] == char;
-}
-
-// TODO: Simplify this by writing to a provided buffer, hopefully avoiding allocation
-pub fn resolveFilepath(allocator: std.mem.Allocator, rawFilepath: String, defaultDirectory: String) !String {
-    const filepath = std.mem.trim(u8, rawFilepath, &std.ascii.whitespace);
-
-    // Check if the filepath is absolute (starts with '/' on Unix)
-    if (startsWith(filepath, '/')) {
-        // Absolute path - return a copy
-        return try allocator.dupe(u8, filepath);
-    }
-
-    // Relative path - concatenate with defaultDirectory
-    // Ensure defaultDirectory ends with '/' if it doesn't already
-    const needsSlash = !endsWith(defaultDirectory, '/');
-    const totalLen = defaultDirectory.len + (if (needsSlash) @as(usize, 1) else 0) + filepath.len;
-
-    const resolved = try allocator.alloc(u8, totalLen);
-    var pos: usize = 0;
-
-    // Copy defaultDirectory
-    @memcpy(resolved[pos..][0..defaultDirectory.len], defaultDirectory);
-    pos += defaultDirectory.len;
-
-    // Add separator if needed
-    if (needsSlash) {
-        resolved[pos] = '/';
-        pos += 1;
-    }
-
-    // Copy filepath
-    @memcpy(resolved[pos..][0..filepath.len], filepath);
-
-    return resolved;
-}
-
 // TODO: This is not actually valid TOML. Maybe I comment out the preview lines?
 fn log_query(allocator: std.mem.Allocator, directory: String, query: String, dataset: *const datastores.DataSet) !void {
     var filepath_buffer: [1024]u8 = undefined;
@@ -194,71 +207,34 @@ fn log_query(allocator: std.mem.Allocator, directory: String, query: String, dat
     toml.append(csv);
 
     try logging.writeFile(toml.viewString(), filepath);
-    std.debug.print("Query logged to {s}", .{filepath});
+    std.debug.print("Query logged to {s}\n", .{filepath});
 }
 
-fn getHomeDir(allocator: std.mem.Allocator) !String {
-    const env_map = try std.process.getEnvMap(allocator);
+fn getConfigPath(allocator: std.mem.Allocator) !String {
+    var env_map = try std.process.getEnvMap(allocator);
+    defer env_map.deinit();
 
-    return env_map.get("HOME") orelse error.HomeDirNotFound;
-}
-
-pub fn main_loop() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-
-    defer {
-        const check = gpa.deinit();
-        if (check == .leak) {
-            std.debug.print("Memory leak detected!\n", .{});
-        } else {
-            std.debug.print("No leaks\n", .{});
-        }
-    }
-
-    const home_dir = try getHomeDir(allocator);
-    defer allocator.free(home_dir);
+    const home_dir = env_map.get("HOME") orelse "";
     const config_path = try std.fmt.allocPrint(allocator, "{s}/dbconnect_config.toml", .{home_dir});
+    return config_path;
+}
 
-    defer allocator.free(config_path);
+pub fn main_loop(context: *ReplContext) !void {
+    const persistent_allocator = context.persistent_allocator;
+    const scratch_allocator = context.scratchAllocator();
 
-    std.debug.print("{s}\n", .{config_path});
-    const config = try parseConfig(allocator, config_path);
-
-    const default_directory: String = config.query_dir;
-    const log_directory: String = config.query_log_dir;
-    const connection_string = config.connection_string;
-    std.debug.print("{s}\n", .{connection_string});
-
-    // Read filepath from user input
-    var filepath_buffer: [1024]u8 = undefined;
-
-    var stdin_reader = std.fs.File.stdin().reader(&filepath_buffer);
-    const stdin = &stdin_reader.interface;
-
-    var stdout_writer = std.fs.File.stdout().writer(&.{});
+    var stdout_writer = context.stdout.writer(&.{});
     const stdout = &stdout_writer.interface;
 
-    var raw_query_buffer = try ResizableBuffer.init(allocator, 1024);
-    defer raw_query_buffer.deinit();
-    raw_query_buffer.appendSlice("<EMPTY>");
-
-    var dataset_buffer = try ResizableBuffer.init(allocator, 1024);
-    defer dataset_buffer.deinit();
-    dataset_buffer.appendSlice("<EMPTY>");
-
-    var dataset: datastores.DataSet = datastores.NullDataset;
-
-    var database_connection = try db.DatabaseConnection.init(allocator, connection_string);
-    defer database_connection.deinit();
-
-    // For now, this can use standard stdin / stdout reading and printing.
-    // V2 will actually update per character, perhaps.
     while (true) {
+        defer context.endFrame();
+
         // Get input
         try stdout.print("> ", .{});
         try stdout.flush();
-        const raw_input = stdin.takeDelimiterExclusive('\n') catch "";
+        var input_buffer: [4096]u8 = undefined;
+        var stdin_reader = context.stdin.reader(&input_buffer);
+        const raw_input = stdin_reader.interface.takeDelimiterExclusive('\n') catch "";
 
         // Parse command
         const parsed_command = parseCommand(raw_input);
@@ -275,8 +251,7 @@ pub fn main_loop() !void {
                 break;
             },
             CommandType.OPEN => {
-                const csv_data = try dataset.toCsv(allocator);
-                defer allocator.free(csv_data);
+                const csv_data = try context.dataset.toCsv(scratch_allocator);
 
                 // Get temp file name
                 var buffer: [1024]u8 = undefined;
@@ -287,40 +262,38 @@ pub fn main_loop() !void {
                 try logging.writeFile(csv_data, filepath);
 
                 // Open that file
-                try openFile(allocator, filepath);
+                try openFile(scratch_allocator, filepath);
             },
             CommandType.READ => {
-                const filepath = try resolveFilepath(allocator, parsed_command.args, default_directory);
-                defer allocator.free(filepath);
+                const filepath = try common.resolveFilepath(scratch_allocator, parsed_command.args, context.query_dir);
 
-                readFileToBuffer(filepath, &raw_query_buffer) catch {
+                common.readFileToBuffer(filepath, &context.raw_query_buffer) catch {
                     try stdout.print("Unable to read file at {s}\n", .{filepath});
                     continue;
                 };
                 try stdout.print("Loaded file\n", .{});
             },
             CommandType.LOAD => {
-                const filepath = try resolveFilepath(allocator, parsed_command.args, default_directory);
-                defer allocator.free(filepath);
+                const filepath = try common.resolveFilepath(scratch_allocator, parsed_command.args, context.query_dir);
 
                 // Dispatch on file extension
                 const extension = std.fs.path.extension(filepath);
 
-                if (std.mem.eql(u8, extension, ".sql") or std.mem.eql(u8, extension, ".txt")) {
-                    // For SQL/TXT files, read to raw_query_buffer
-                    readFileToBuffer(filepath, &raw_query_buffer) catch {
+                // For SQL/TXT files, read to context.raw_query_buffer
+                if (stringsMatch(extension, ".sql") or stringsMatch(extension, ".txt")) {
+                    common.readFileToBuffer(filepath, &context.raw_query_buffer) catch {
                         try stdout.print("Unable to read file at {s}\n", .{filepath});
                         continue;
                     };
                     try stdout.print("Loaded query from {s}\n", .{filepath});
                 } else if (std.mem.eql(u8, extension, ".json")) {
-                    // For JSON files, read to dataset_buffer and initialize dataset
-                    readFileToBuffer(filepath, &dataset_buffer) catch {
+                    // For JSON files, read to context.dataset_buffer and initialize dataset
+                    common.readFileToBuffer(filepath, &context.dataset_buffer) catch {
                         try stdout.print("Unable to read file at {s}\n", .{filepath});
                         continue;
                     };
-                    dataset.deinit();
-                    dataset = datastores.DataSet.initFromJson(allocator, dataset_buffer.readVolatile()) catch {
+                    context.dataset.deinit();
+                    context.dataset = datastores.DataSet.initFromJson(persistent_allocator, context.dataset_buffer.readVolatile()) catch {
                         try stdout.print("Unable to load data at {s}\n", .{filepath});
                         continue;
                     };
@@ -331,29 +304,28 @@ pub fn main_loop() !void {
                 }
             },
             CommandType.PREVIEW => {
-                const csv_data = try dataset.toCsvPreview(allocator, CSV_PREVIEW_SIZE);
-                defer allocator.free(csv_data);
+                const csv_data = try context.dataset.toCsvPreview(scratch_allocator, CSV_PREVIEW_SIZE);
                 try stdout.print("{s}\n", .{csv_data});
             },
             CommandType.PRINT => {
-                try stdout.print("{s}\n", .{raw_query_buffer.readVolatile()});
+                try stdout.print("{s}\n", .{context.raw_query_buffer.readVolatile()});
             },
             CommandType.RUN => {
-                dataset.deinit();
+                context.dataset.deinit();
 
-                const new_dataset = db.executeQuery(allocator, database_connection, raw_query_buffer.readVolatile()) catch {
-                    dataset = datastores.NullDataset;
+                const new_dataset = db.executeQuery(persistent_allocator, context.database_connection, context.raw_query_buffer.readVolatile()) catch {
+                    context.dataset = datastores.NullDataset;
                     break;
                 };
 
-                dataset = new_dataset;
-                try log_query(allocator, log_directory, raw_query_buffer.readVolatile(), &dataset);
+                context.dataset = new_dataset;
+
+                try log_query(scratch_allocator, context.query_log_dir, context.raw_query_buffer.readVolatile(), &context.dataset);
             },
             CommandType.TRANSPILE => {
-                var transpiled = try transpiler.transpile(allocator, raw_query_buffer.readVolatile());
-                defer transpiled.deinit(allocator);
-                raw_query_buffer.clear();
-                raw_query_buffer.appendSlice(transpiled.items);
+                const transpiled = try transpiler.transpile(scratch_allocator, context.raw_query_buffer.readVolatile());
+                context.raw_query_buffer.clear();
+                context.raw_query_buffer.appendSlice(transpiled.items);
             },
         }
 
@@ -361,14 +333,11 @@ pub fn main_loop() !void {
         // try stdout.print("{s}\n", .{input});
         // try stdout.flush();
     }
-
-    dataset.deinit();
 }
 
-pub fn main_transpile() !void {
+pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-
     defer {
         const check = gpa.deinit();
         if (check == .leak) {
@@ -377,34 +346,11 @@ pub fn main_transpile() !void {
             std.debug.print("No leaks\n", .{});
         }
     }
-    var filepath_buffer: [1024]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&filepath_buffer);
-    const stdin = &stdin_reader.interface;
 
-    var stdout_writer = std.fs.File.stdout().writer(&.{});
-    const stdout = &stdout_writer.interface;
+    var context = try ReplContext.init(allocator);
+    defer context.deinit();
 
-    // For now, this can use standard stdin / stdout reading and printing.
-    // V2 will actually update per character, perhaps.
-    while (true) {
-        // Get input
-        try stdout.print("> ", .{});
-        try stdout.flush();
-        const raw_input = stdin.takeDelimiterInclusive('\n') catch "";
-
-        const input = raw_input;
-
-        var transpiled = try transpiler.transpile(allocator, input);
-        defer transpiled.deinit(allocator);
-
-        try stdout.print("{s}\n", .{transpiled.items});
-        try stdout.flush();
-    }
-}
-
-pub fn main() !void {
-    try main_loop();
-    // try main_transpile();
+    try main_loop(&context);
 }
 
 test "JSONIntegrationTest" {
