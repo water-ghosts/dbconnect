@@ -1,0 +1,21 @@
+For writing to CSV, have a parameter to decide how to handle NULLs. For Excel, maybe I want to leave them blank?
+
+Support long values (just Strings I think. Maaaaybe binary eventually)
+
+Then start transpiling at some point.
+
+Stress test with large amounts of data and maybe optimize
+
+
+-Transpilation
+    -Auto group by
+    -Ignore trailing commas
+    -x := y CTE syntax
+    -Infer select
+
+-Data manipulation a la Pandas
+    -Start with just ratios
+    -Optimize for no nulls if no nulls are ever added (maybe make the nullable array itself null)
+
+
+Second lexer pass to combine tokens
