@@ -27,84 +27,87 @@ If that proves not to be true, that will itself be a learning experience 🙂)
 
 # Tech stack
 
--Target the latest stable version of Zig. Since Zig is a pre-release language, I accept
+- Target the latest stable version of Zig. Since Zig is a pre-release language, I accept
     that this will require rewriting things as the language evolves.
 
--ODBC is the interface layer between this code and the Snowflake database. I intentionally
+- ODBC is the interface layer between this code and the Snowflake database. I intentionally
     choose to write my own bindings rather than use existing ones.
 
--Snowflake is the target database. At some point, I may expand the scope to support
+- Snowflake is the target database. At some point, I may expand the scope to support
     other SQL dialects, but this is out of scope for V1.
 
 # Communication Preferences
 
--Please do not be sycophantic. You do not need to praise or validate me.
+- Please do not be sycophantic. You do not need to praise or validate me.
 
--Please push back against my ideas if you think I am making a mistake, especially when
+- Please push back against my ideas if you think I am making a mistake, especially when
     it comes to memory management. 
 
--Since this is a learning project, please err on the side of over-explaining low-level
+- Since this is a learning project, please err on the side of over-explaining low-level
     best practices and gotchas.
 
--This is also a learning project around working with coding agents. Please point out
+- This is also a learning project around working with coding agents. Please point out
     places where my intention is unclear so I can learn to write better guides.
 
 # Coding Preferences
 
--Prefer flat, cache-friendly data structures where possible.
+- Prefer flat, cache-friendly data structures where possible.
 
--Prefer indices and IDs over pointers where possible.
+- Prefer indices and IDs over pointers where possible.
 
--In general, use Data-Oriented Design as a North Star. This is the core reason I'm using
+- In general, use Data-Oriented Design as a North Star. This is the core reason I'm using
     Zig, even though I am much more comfortable programming in Python. PLEASE push back
     on me if I am going down a highly inefficient path.
 
--Prefer human-readable names over concise ones (e.g. index, not idx or i).
+- Prefer human-readable names over concise ones (e.g. index, not idx or i).
 
--Use type aliases to communicate intent (e.g. call something a Path, not a []const u8).
+- Use type aliases to communicate intent (e.g. call something a Path, not a []const u8).
 
--Assume Unix conventions; this does not need to be cross-platform.
+- Assume Unix conventions; this does not need to be cross-platform.
 
--Minimize external dependencies where possible. Ideally, ODBC is the only dependency,
+- Minimize external dependencies where possible. Ideally, ODBC is the only dependency,
     but others can be added if they solve very complex problems 
 
--Write integration tests and unit tests that will actually catch difficult bugs, but 
+- Write integration tests and unit tests that will actually catch difficult bugs, but 
     don't create tons of unit tests for their own sake. Too many tests create friction 
     when changing interfaces, and the shape of this program is still in flux.
 
-# Architecture
+# Current file layout
 
--main.zig - This is messier than it should be. Ideally, this hosts a console from which
+- main.zig - This is messier than it should be. Ideally, this hosts a console from which
     a user can load SQL files, transpile them, execute the results, do basic data
     manipulation, etc. Eventually, I would like to include a text editor in this console
     as well to remove one additional source of context switching. 
 
--common.zig - Reusable helper utilities for things like string manipulation.
+- common.zig - Reusable helper utilities for things like string manipulation.
 
--transpilation/ - This folder defines a SQL transpiler which takes in a custom quasi-SQL
+- transpilation/ - This folder defines a SQL transpiler which takes in a custom quasi-SQL
     syntax and produces valid formal SQL. It has three steps: `lexing.zig` splits an
     input string into tokens, `parsing.zig` parses those tokens into an internal query
     representation (far more rigid than an AST, although I am open to revisiting this
     design decision), and `transpiler.zig` turns that query representation into valid
     SQL for Snowflake to consume.
 
--datastores.zig - This defines a "Datastore" object, analogous to a Pandas dataframe.
+- datastores.zig - This defines a "Datastore" object, analogous to a Pandas dataframe.
     Once a query is executed, the results are stored in a "datastore" for in-memory
     manipulation. For example, if there's a Revenue column and a Sessions column, it
     should be trivial to define a new Revenue/Session column as a direct function of
     those two.
 
--database_connector.zig - Using ODBC under the hood, this provides an interface which 
+- database_connector.zig - Using ODBC under the hood, this provides an interface which 
     takes a SQL query and returns a Datastore representing the results, analogous to 
     Pandas' read_sql() function.
-
 
 In an ideal world, I would love these components to be more modular and lend themselves 
 well to different contexts, e.g. making the transpiler a library that I can call from 
 this project or embed in a VSCode extension, allowing this to be run from either the 
 command line or a simple GUI, etc. 
 
-## Possible architecture decision: Pseudo "Frame" boundaries
+# Architecture
+
+(This is aspirational, not an accurate description of the current code)
+
+`main.zig` launches a REPL from which a user can 
 
 Most of the Data-Oriented Design context I have comes from video games, where it is
 natural to think of two kinds of memory lifetimes: memory that lives across a frame
