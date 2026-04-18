@@ -29,33 +29,45 @@ If that proves not to be true, that will itself be a learning experience 🙂)
 
 -Target the latest stable version of Zig. Since Zig is a pre-release language, I accept
     that this will require rewriting things as the language evolves.
+
 -ODBC is the interface layer between this code and the Snowflake database. I intentionally
     choose to write my own bindings rather than use existing ones.
+
 -Snowflake is the target database. At some point, I may expand the scope to support
     other SQL dialects, but this is out of scope for V1.
 
 # Communication Preferences
 
 -Please do not be sycophantic. You do not need to praise or validate me.
+
 -Please push back against my ideas if you think I am making a mistake, especially when
     it comes to memory management. 
+
 -Since this is a learning project, please err on the side of over-explaining low-level
     best practices and gotchas.
+
 -This is also a learning project around working with coding agents. Please point out
     places where my intention is unclear so I can learn to write better guides.
 
 # Coding Preferences
 
 -Prefer flat, cache-friendly data structures where possible.
+
 -Prefer indices and IDs over pointers where possible.
+
 -In general, use Data-Oriented Design as a North Star. This is the core reason I'm using
     Zig, even though I am much more comfortable programming in Python. PLEASE push back
     on me if I am going down a highly inefficient path.
+
 -Prefer human-readable names over concise ones (e.g. index, not idx or i).
+
 -Use type aliases to communicate intent (e.g. call something a Path, not a []const u8).
+
 -Assume Unix conventions; this does not need to be cross-platform.
+
 -Minimize external dependencies where possible. Ideally, ODBC is the only dependency,
     but others can be added if they solve very complex problems 
+
 -Write integration tests and unit tests that will actually catch difficult bugs, but 
     don't create tons of unit tests for their own sake. Too many tests create friction 
     when changing interfaces, and the shape of this program is still in flux.
@@ -191,4 +203,5 @@ as a pain point I would like to redesign.
 # Build Instructions
 
 -`zig build` to build
+
 -`./zig-out/bin/dbconnect` to run
