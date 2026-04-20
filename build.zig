@@ -95,6 +95,21 @@ pub fn build(b: *std.Build) void {
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
 
+    const transpile_exe = b.addExecutable(.{
+        .name = "transpile",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/transpile_repl.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(transpile_exe);
+
+    const transpile_run_cmd = b.addRunArtifact(transpile_exe);
+    transpile_run_cmd.step.dependOn(b.getInstallStep());
+    const transpile_run_step = b.step("transpile", "Run the transpile REPL");
+    transpile_run_step.dependOn(&transpile_run_cmd.step);
+
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
     // This will evaluate the `run` step rather than the default step.

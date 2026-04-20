@@ -24,6 +24,8 @@ const CommandType = enum {
     TRANSPILE,
 };
 
+const ReplMode = enum { STANDARD, TRANSPILE_LOOP };
+
 const ParsedCommand = struct {
     command_type: CommandType,
     args: String,
@@ -42,6 +44,7 @@ const ReplContext = struct {
     stdout: std.fs.File,
     raw_query_buffer: ResizableBuffer,
     dataset_buffer: ResizableBuffer,
+    current_mode: ReplMode,
 
     pub fn init(persistent_allocator: std.mem.Allocator) !ReplContext {
         var scratch_arena = std.heap.ArenaAllocator.init(persistent_allocator);
@@ -81,6 +84,7 @@ const ReplContext = struct {
             .stdout = std.fs.File.stdout(),
             .raw_query_buffer = raw_query_buffer,
             .dataset_buffer = dataset_buffer,
+            .current_mode = ReplMode.STANDARD,
         };
     }
 
