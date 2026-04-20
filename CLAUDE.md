@@ -102,22 +102,6 @@ well to different contexts, e.g. making the transpiler a library that I can call
 this project or embed in a VSCode extension, allowing this to be run from either the 
 command line or a simple GUI, etc. 
 
-# Architecture
-
-(This is aspirational, not an accurate description of the current code)
-
-`main.zig` launches a REPL from which a user can 
-
-Most of the Data-Oriented Design context I have comes from video games, where it is
-natural to think of two kinds of memory lifetimes: memory that lives across a frame
-boundary, and "scratch space" that is only used for the current frame. This short-lived
-"scratch space" can be set up in a lower friction way, because you don't need to worry
-about freeing everything; you just clear it all once you've drawn the frame. This
-especially seems like a good fit for string manipulation; it seems silly to worry about
-out of memory errors and freeing data when I'm just concatenating strings.  While my 
-program does not explicitly have "frames" in the way a game does, I suspect it could
-be helpful to set up a similar split between short-term and long-term memory.
-
 # Error Handling
 
 As of April 18, 2026, I have barely thought about proper error handling, and nearly
