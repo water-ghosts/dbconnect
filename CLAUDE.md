@@ -58,10 +58,6 @@ If that proves not to be true, that will itself be a learning experience 🙂)
     Zig, even though I am much more comfortable programming in Python. PLEASE push back
     on me if I am going down a highly inefficient path.
 
-- Prefer human-readable names over concise ones (e.g. index, not idx or i).
-
-- Use type aliases to communicate intent (e.g. call something a Path, not a []const u8).
-
 - Assume Unix conventions; this does not need to be cross-platform.
 
 - Minimize external dependencies where possible. Ideally, ODBC is the only dependency,
@@ -70,6 +66,24 @@ If that proves not to be true, that will itself be a learning experience 🙂)
 - Write integration tests and unit tests that will actually catch difficult bugs, but 
     don't create tons of unit tests for their own sake. Too many tests create friction 
     when changing interfaces, and the shape of this program is still in flux.
+
+# Naming Conventions
+
+- Prefer human-readable names over concise ones (e.g. index, not idx or i).
+
+- Use type aliases to communicate intent (e.g. call something a Path, not a []const u8).
+
+Per https://ziglang.org/documentation/0.16.0/#Style-Guide :
+
+- If x is a struct with 0 fields and is never meant to be instantiated, then x is considered to be a "namespace" and should be snake_case.
+
+- If x is a type or type alias, then x should be TitleCase.
+
+- If x is callable, and x's return type is `type`, then x should be TitleCase.
+
+- If x is otherwise callable, then x should be camelCase.
+
+- Otherwise, x should be snake_case.
 
 # Current file layout
 

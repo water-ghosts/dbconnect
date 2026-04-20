@@ -28,12 +28,12 @@ pub fn writeFile(content: String, filepath: String) !void {
     try file.writeAll(content);
 }
 
-pub fn get_dated_filepath(directory: String, buffer: []u8) !String {
+pub fn getDatedFilepath(directory: String, buffer: []u8) !String {
     // Get current unix timestamp
     const timestamp = std.time.timestamp();
 
-    var time_val: c.time_t = @intCast(timestamp);
-    const local_time = c.localtime(&time_val);
+    var time_value: c.time_t = @intCast(timestamp);
+    const local_time = c.localtime(&time_value);
 
     if (local_time == null) return error.LocalTimeConversionFailed;
 

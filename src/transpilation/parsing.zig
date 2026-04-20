@@ -120,7 +120,6 @@ pub const Expression = union(enum) {
                 .equal, .not_equal, .less_than, .greater_than => 3,
                 .add, .subtract => 4,
                 .multiply, .divide => 5,
-                // else => 1,
             };
         }
 
@@ -163,37 +162,37 @@ const MinimalParsedQuery = struct {
     allocator: std.mem.Allocator,
 
     ctes: std.ArrayList(CteDefinition),
-    selectExpressions: std.ArrayList(ExpressionID),
-    fromExpression: ExpressionID,
-    joinExpressions: std.ArrayList(ExpressionID),
-    whereExpression: ExpressionID,
-    groupByExpressions: std.ArrayList(ExpressionID),
-    havingExpression: ExpressionID,
-    qualifyExpression: ExpressionID,
-    limitExpression: ExpressionID,
+    select_expressions: std.ArrayList(ExpressionID),
+    from_expression: ExpressionID,
+    join_expressions: std.ArrayList(ExpressionID),
+    where_expression: ExpressionID,
+    group_by_expressions: std.ArrayList(ExpressionID),
+    having_expression: ExpressionID,
+    qualify_expression: ExpressionID,
+    limit_expression: ExpressionID,
 
     expressions: []Expression,
-    stringBuffer: []MutString,
-    containsAggregate: bool,
+    string_buffer: []MutString,
+    contains_aggregate: bool,
 
     pub fn deinit(self: *Self) void {
         self.ctes.deinit(self.allocator);
-        self.selectExpressions.deinit(self.allocator);
-        self.joinExpressions.deinit(self.allocator);
-        self.groupByExpressions.deinit(self.allocator);
+        self.select_expressions.deinit(self.allocator);
+        self.join_expressions.deinit(self.allocator);
+        self.group_by_expressions.deinit(self.allocator);
         self.expressions = undefined;
-        self.stringBuffer = undefined;
+        self.string_buffer = undefined;
     }
 
     fn renderExpression(self: *const Self, expression_id: ExpressionID, builder: *StringBuilder) void {
         switch (self.expressions[expression_id]) {
             .literal => |lit| {
-                const theString = self.stringBuffer[lit.string_index];
-                builder.append(theString.items);
+                const string = self.string_buffer[lit.string_index];
+                builder.append(string.items);
             },
             .identifier, .uncategorized => |ident| {
-                const theString = self.stringBuffer[ident.string_index];
-                builder.append(theString.items);
+                const string = self.string_buffer[ident.string_index];
+                builder.append(string.items);
             },
             .binary_op => |bin| {
                 self.renderExpression(bin.left, builder);
@@ -208,8 +207,8 @@ const MinimalParsedQuery = struct {
                 builder.push(')');
             },
             .function => |func| {
-                const theString = self.stringBuffer[func.function_name_index];
-                builder.append(theString.items);
+                const string = self.string_buffer[func.function_name_index];
+                builder.append(string.items);
 
                 if (func.arguments.items.len > 0) {
                     builder.push('(');
@@ -220,8 +219,8 @@ const MinimalParsedQuery = struct {
             .star => {
                 builder.push('*');
             },
-            .join => |j| {
-                const kind_str: []const u8 = switch (j.kind) {
+            .join => |join| {
+                const kind_str: []const u8 = switch (join.kind) {
                     .inner => "join",
                     .left => "left join",
                     .right => "right join",
@@ -230,43 +229,43 @@ const MinimalParsedQuery = struct {
                 };
                 builder.append(kind_str);
                 builder.push(' ');
-                self.renderExpression(j.table, builder);
-                if (j.on_condition > 0) {
+                self.renderExpression(join.table, builder);
+                if (join.on_condition > 0) {
                     builder.append(" on ");
-                    self.renderExpression(j.on_condition, builder);
+                    self.renderExpression(join.on_condition, builder);
                 }
             },
-            .subquery => |sq| {
+            .subquery => |subquery| {
                 builder.push('(');
                 builder.append("select ");
-                if (sq.select.items.len > 0) {
-                    self.renderExpressionList(sq.select.items, builder);
+                if (subquery.select.items.len > 0) {
+                    self.renderExpressionList(subquery.select.items, builder);
                 } else {
                     builder.append("*");
                 }
-                if (sq.from > 0) {
+                if (subquery.from > 0) {
                     builder.append(" from ");
-                    self.renderExpression(sq.from, builder);
+                    self.renderExpression(subquery.from, builder);
                 }
-                for (sq.joins.items) |join_id| {
+                for (subquery.joins.items) |join_id| {
                     builder.push(' ');
                     self.renderExpression(join_id, builder);
                 }
-                if (sq.where > 0) {
+                if (subquery.where > 0) {
                     builder.append(" where ");
-                    self.renderExpression(sq.where, builder);
+                    self.renderExpression(subquery.where, builder);
                 }
-                if (sq.group_by.items.len > 0) {
+                if (subquery.group_by.items.len > 0) {
                     builder.append(" group by ");
-                    self.renderExpressionList(sq.group_by.items, builder);
+                    self.renderExpressionList(subquery.group_by.items, builder);
                 }
-                if (sq.having > 0) {
+                if (subquery.having > 0) {
                     builder.append(" having ");
-                    self.renderExpression(sq.having, builder);
+                    self.renderExpression(subquery.having, builder);
                 }
-                if (sq.qualify > 0) {
+                if (subquery.qualify > 0) {
                     builder.append(" qualify ");
-                    self.renderExpression(sq.qualify, builder);
+                    self.renderExpression(subquery.qualify, builder);
                 }
                 builder.push(')');
             },
@@ -275,20 +274,20 @@ const MinimalParsedQuery = struct {
     }
 
     pub fn renderExpressionList(self: *const Self, expressions: []ExpressionID, builder: *StringBuilder) void {
-        var isFirstElement = true;
+        var is_first_element = true;
         for (expressions) |expression_id| {
             if (expression_id == 0) {
                 continue;
             }
 
-            if (!isFirstElement) {
+            if (!is_first_element) {
                 builder.push(',');
                 builder.push(' ');
             }
 
             self.renderExpression(expression_id, builder);
 
-            isFirstElement = false;
+            is_first_element = false;
         }
     }
 
@@ -298,9 +297,9 @@ const MinimalParsedQuery = struct {
 
         if (self.ctes.items.len > 0) {
             builder.append("with ");
-            for (self.ctes.items, 0..) |cte, i| {
-                if (i > 0) builder.append(", ");
-                builder.append(self.stringBuffer[cte.name_index].items);
+            for (self.ctes.items, 0..) |cte, cte_index| {
+                if (cte_index > 0) builder.append(", ");
+                builder.append(self.string_buffer[cte.name_index].items);
                 builder.append(" as ");
                 self.renderExpression(cte.body, &builder);
             }
@@ -308,40 +307,40 @@ const MinimalParsedQuery = struct {
         }
 
         builder.append("select ");
-        if (self.selectExpressions.items.len > 0) {
-            self.renderExpressionList(self.selectExpressions.items[0..], &builder);
+        if (self.select_expressions.items.len > 0) {
+            self.renderExpressionList(self.select_expressions.items[0..], &builder);
         } else {
             builder.append("*");
         }
 
-        if (self.fromExpression > 0) {
+        if (self.from_expression > 0) {
             builder.append(" from ");
-            self.renderExpression(self.fromExpression, &builder);
+            self.renderExpression(self.from_expression, &builder);
         }
 
-        for (self.joinExpressions.items) |join_id| {
+        for (self.join_expressions.items) |join_id| {
             builder.push(' ');
             self.renderExpression(join_id, &builder);
         }
 
-        if (self.whereExpression > 0) {
+        if (self.where_expression > 0) {
             builder.append(" where ");
-            self.renderExpression(self.whereExpression, &builder);
+            self.renderExpression(self.where_expression, &builder);
         }
 
-        if (self.groupByExpressions.items.len > 0) {
+        if (self.group_by_expressions.items.len > 0) {
             builder.append(" group by ");
-            self.renderExpressionList(self.groupByExpressions.items[0..], &builder);
+            self.renderExpressionList(self.group_by_expressions.items[0..], &builder);
         }
 
-        if (self.havingExpression > 0) {
+        if (self.having_expression > 0) {
             builder.append(" having ");
-            self.renderExpression(self.havingExpression, &builder);
+            self.renderExpression(self.having_expression, &builder);
         }
 
-        if (self.qualifyExpression > 0) {
+        if (self.qualify_expression > 0) {
             builder.append(" qualify ");
-            self.renderExpression(self.qualifyExpression, &builder);
+            self.renderExpression(self.qualify_expression, &builder);
         }
 
         return builder.toOwnedMutString();
@@ -350,21 +349,21 @@ const MinimalParsedQuery = struct {
 
 pub const Parser = struct {
     allocator: std.mem.Allocator,
-    lexedTokens: LexedTokens,
-    stringBuffer: std.ArrayList(MutString),
+    lexed_tokens: LexedTokens,
+    string_buffer: std.ArrayList(MutString),
     position: usize = 0,
     // Arena for allocating expression nodes - they live for the lifetime of the parse result
     expressions: std.ArrayList(Expression),
 
-    pub fn init(allocator: std.mem.Allocator, lexedTokens: LexedTokens) !Parser {
-        const stringBuffer = try lexedTokens.stringBuffer.clone(allocator);
+    pub fn init(allocator: std.mem.Allocator, lexed_tokens: LexedTokens) !Parser {
+        const string_buffer = try lexed_tokens.string_buffer.clone(allocator);
         var expressions = try std.ArrayList(Expression).initCapacity(allocator, 1024);
         try expressions.append(allocator, NullExpression);
 
         return Parser{
             .allocator = allocator,
-            .lexedTokens = lexedTokens,
-            .stringBuffer = stringBuffer,
+            .lexed_tokens = lexed_tokens,
+            .string_buffer = string_buffer,
             .position = 0,
             .expressions = expressions,
         };
@@ -374,10 +373,10 @@ pub const Parser = struct {
         // Free owned data inside expression nodes
         for (self.expressions.items) |*expr| {
             switch (expr.*) {
-                .subquery => |*sq| {
-                    sq.select.deinit(self.allocator);
-                    sq.joins.deinit(self.allocator);
-                    sq.group_by.deinit(self.allocator);
+                .subquery => |*subquery| {
+                    subquery.select.deinit(self.allocator);
+                    subquery.joins.deinit(self.allocator);
+                    subquery.group_by.deinit(self.allocator);
                 },
                 .function => |*func| {
                     func.arguments.deinit(self.allocator);
@@ -387,32 +386,32 @@ pub const Parser = struct {
         }
         // Free strings appended by the parser (dotted identifiers etc.) beyond the
         // original lexer buffer. The lexer owns and will free the originals.
-        const original_count = self.lexedTokens.stringBuffer.items.len;
-        for (self.stringBuffer.items[original_count..]) |*str| {
+        const original_count = self.lexed_tokens.string_buffer.items.len;
+        for (self.string_buffer.items[original_count..]) |*str| {
             str.deinit(self.allocator);
         }
-        self.stringBuffer.deinit(self.allocator);
-        self.lexedTokens.deinit();
+        self.string_buffer.deinit(self.allocator);
+        self.lexed_tokens.deinit();
         self.expressions.deinit(self.allocator);
     }
 
     fn isAtEnd(self: *Parser) bool {
-        return self.position >= self.lexedTokens.tokens.items.len;
+        return self.position >= self.lexed_tokens.tokens.items.len;
     }
 
     fn peek(self: *Parser) Token {
         if (self.isAtEnd()) {
-            return Token{ .tokenType = TokenType.None, .stringIndex = 0 };
+            return Token{ .token_type = TokenType.None, .string_index = 0 };
         }
-        return self.lexedTokens.tokens.items[self.position];
+        return self.lexed_tokens.tokens.items[self.position];
     }
 
-    fn peek_n_ahead(self: *Parser, n: usize) Token {
-        const newPosition = self.position + n;
-        if (newPosition >= self.lexedTokens.tokens.items.len) {
-            return Token{ .tokenType = TokenType.None, .stringIndex = 0 };
+    fn peekNAhead(self: *Parser, lookahead: usize) Token {
+        const new_position = self.position + lookahead;
+        if (new_position >= self.lexed_tokens.tokens.items.len) {
+            return Token{ .token_type = TokenType.None, .string_index = 0 };
         }
-        return self.lexedTokens.tokens.items[newPosition];
+        return self.lexed_tokens.tokens.items[new_position];
     }
 
     fn advance(self: *Parser) void {
@@ -420,8 +419,8 @@ pub const Parser = struct {
     }
 
     fn consume(self: *Parser, token_type: TokenType) bool {
-        const nextToken = self.peek();
-        if (nextToken.tokenType == token_type) {
+        const next_token = self.peek();
+        if (next_token.token_type == token_type) {
             self.advance();
             return true;
         }
@@ -429,26 +428,26 @@ pub const Parser = struct {
     }
 
     fn isNewClause(token: Token) bool {
-        return (token.tokenType == TokenType.Select or
-            token.tokenType == TokenType.From or
-            token.tokenType == TokenType.Where or
-            token.tokenType == TokenType.GroupBy or
-            token.tokenType == TokenType.Having or
-            token.tokenType == TokenType.Qualify or
-            token.tokenType == TokenType.OrderBy or
-            token.tokenType == TokenType.Join or
-            token.tokenType == TokenType.InnerJoin or
-            token.tokenType == TokenType.LeftJoin or
-            token.tokenType == TokenType.RightJoin or
-            token.tokenType == TokenType.FullJoin or
-            token.tokenType == TokenType.CrossJoin);
+        return (token.token_type == TokenType.Select or
+            token.token_type == TokenType.From or
+            token.token_type == TokenType.Where or
+            token.token_type == TokenType.GroupBy or
+            token.token_type == TokenType.Having or
+            token.token_type == TokenType.Qualify or
+            token.token_type == TokenType.OrderBy or
+            token.token_type == TokenType.Join or
+            token.token_type == TokenType.InnerJoin or
+            token.token_type == TokenType.LeftJoin or
+            token.token_type == TokenType.RightJoin or
+            token.token_type == TokenType.FullJoin or
+            token.token_type == TokenType.CrossJoin);
     }
 
     // Check if current token marks the end of an expression
     fn isExpressionTerminator(token: Token) bool {
         return isNewClause(token) or
-            token.tokenType == TokenType.Comma or
-            token.tokenType == TokenType.None;
+            token.token_type == TokenType.Comma or
+            token.token_type == TokenType.None;
     }
 
     fn addExpression(self: *Parser, expr: Expression) !ExpressionID {
@@ -461,12 +460,12 @@ pub const Parser = struct {
         const token = self.peek();
         self.advance();
 
-        switch (token.tokenType) {
+        switch (token.token_type) {
             .Numeric, .Boolean => {
                 return try self.addExpression(.{
                     .literal = .{
-                        .token_type = token.tokenType,
-                        .string_index = token.stringIndex,
+                        .token_type = token.token_type,
+                        .string_index = token.string_index,
                     },
                 });
             },
@@ -474,26 +473,26 @@ pub const Parser = struct {
                 return try self.addExpression(.{
                     .literal = .{
                         .token_type = .String,
-                        .string_index = token.stringIndex,
+                        .string_index = token.string_index,
                     },
                 });
             },
             .Identifier => {
-                var string_index = token.stringIndex;
+                var string_index = token.string_index;
                 // Handle dotted identifiers like a.x or schema.table.column
-                while (self.peek().tokenType == .Dot) {
+                while (self.peek().token_type == .Dot) {
                     self.advance(); // consume dot
                     const next = self.peek();
-                    if (next.tokenType != .Identifier) break;
+                    if (next.token_type != .Identifier) break;
                     self.advance(); // consume next identifier
-                    const left_str = self.stringBuffer.items[string_index];
-                    const right_str = self.stringBuffer.items[next.stringIndex];
+                    const left_str = self.string_buffer.items[string_index];
+                    const right_str = self.string_buffer.items[next.string_index];
                     var combined = try MutString.initCapacity(self.allocator, left_str.items.len + 1 + right_str.items.len);
                     try combined.appendSlice(self.allocator, left_str.items);
                     try combined.append(self.allocator, '.');
                     try combined.appendSlice(self.allocator, right_str.items);
-                    string_index = self.stringBuffer.items.len;
-                    try self.stringBuffer.append(self.allocator, combined);
+                    string_index = self.string_buffer.items.len;
+                    try self.string_buffer.append(self.allocator, combined);
                 }
                 return try self.addExpression(.{
                     .identifier = .{
@@ -509,7 +508,7 @@ pub const Parser = struct {
 
                 return try self.addExpression(.{
                     .function = .{
-                        .function_name_index = token.stringIndex,
+                        .function_name_index = token.string_index,
                         .arguments = arguments,
                     },
                 });
@@ -517,12 +516,12 @@ pub const Parser = struct {
             .OpenParen => {
                 // Detect subquery: (SELECT ...) or (WITH ...)
                 const next = self.peek();
-                if (next.tokenType == .Select or next.tokenType == .With) {
-                    const sq = try self.parseQueryBody(self.allocator);
+                if (next.token_type == .Select or next.token_type == .With) {
+                    const subquery = try self.parseQueryBody(self.allocator);
                     if (!self.consume(.CloseParen)) {
                         return 0;
                     }
-                    return try self.addExpression(.{ .subquery = sq });
+                    return try self.addExpression(.{ .subquery = subquery });
                 }
 
                 const inner = try self.parseExpressionWithPrecedence(0);
@@ -556,7 +555,7 @@ pub const Parser = struct {
             const token = self.peek();
 
             // Check if this is an operator
-            const op = Expression.Operator.fromTokenType(token.tokenType) orelse break;
+            const op = Expression.Operator.fromTokenType(token.token_type) orelse break;
 
             // Check precedence
             const op_precedence = op.precedence();
@@ -599,21 +598,21 @@ pub const Parser = struct {
         var elements: std.ArrayList(ExpressionID) = .empty;
 
         while (!self.isAtEnd()) {
-            const nextToken = self.peek();
-            std.debug.print("Peek: {any}\n", .{nextToken.tokenType});
+            const next_token = self.peek();
+            std.debug.print("Peek: {any}\n", .{next_token.token_type});
 
-            if (isNewClause(nextToken)) {
+            if (isNewClause(next_token)) {
                 std.debug.print("Breaking\n", .{});
                 break;
             }
 
             // Skip commas between elements
-            if (nextToken.tokenType == TokenType.Comma) {
+            if (next_token.token_type == TokenType.Comma) {
                 self.advance();
                 continue;
             }
 
-            if (nextToken.tokenType == TokenType.CloseParen) {
+            if (next_token.token_type == TokenType.CloseParen) {
                 if (break_on_paren) {
                     self.advance();
                 }
@@ -621,7 +620,7 @@ pub const Parser = struct {
             }
 
             // Kind of a hack, * is valid as a list element
-            if (nextToken.tokenType == .Star) {
+            if (next_token.token_type == .Star) {
                 self.advance();
                 const expression_id = try self.addExpression(.{ .star = .{} });
                 try elements.append(self.allocator, expression_id);
@@ -656,12 +655,12 @@ pub const Parser = struct {
 
         while (!self.isAtEnd()) {
             // Stop at `)` so caller can consume it
-            if (self.peek().tokenType == .CloseParen) break;
+            if (self.peek().token_type == .CloseParen) break;
 
-            const nextToken = self.peek();
+            const next_token = self.peek();
             self.advance();
 
-            switch (nextToken.tokenType) {
+            switch (next_token.token_type) {
                 .Select => {
                     var elems = try self.parseExpressionList(false);
                     try select.appendSlice(allocator, elems.items);
@@ -685,7 +684,7 @@ pub const Parser = struct {
                     qualify = self.parseExpression() catch 0;
                 },
                 .Join, .InnerJoin, .LeftJoin, .RightJoin, .FullJoin, .CrossJoin => {
-                    const kind: Expression.JoinKind = switch (nextToken.tokenType) {
+                    const kind: Expression.JoinKind = switch (next_token.token_type) {
                         .LeftJoin => .left,
                         .RightJoin => .right,
                         .FullJoin => .full,
@@ -703,7 +702,7 @@ pub const Parser = struct {
                     try joins.append(allocator, join_expr);
                 },
                 .Limit => {
-                    if (self.peek().tokenType == TokenType.Numeric) {
+                    if (self.peek().token_type == TokenType.Numeric) {
                         limit = self.parsePrimary() catch 0;
                     } else {
                         break;
@@ -726,84 +725,84 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Parser, allocator: std.mem.Allocator) !MinimalParsedQuery {
-        var currentClause: ClauseType = ClauseType.Select;
+        var current_clause: ClauseType = ClauseType.Select;
 
         var ctes: std.ArrayList(CteDefinition) = .empty;
-        var selectExpressions: std.ArrayList(ExpressionID) = .empty;
-        var fromExpression: ExpressionID = 0;
-        var joinExpressions: std.ArrayList(ExpressionID) = .empty;
-        var whereExpression: ExpressionID = 0;
-        var groupByExpressions: std.ArrayList(ExpressionID) = .empty;
-        var havingExpression: ExpressionID = 0;
-        var qualifyExpression: ExpressionID = 0;
-        var limitExpression: ExpressionID = 0; // TODO: Just make this an integer maybe
+        var select_expressions: std.ArrayList(ExpressionID) = .empty;
+        var from_expression: ExpressionID = 0;
+        var join_expressions: std.ArrayList(ExpressionID) = .empty;
+        var where_expression: ExpressionID = 0;
+        var group_by_expressions: std.ArrayList(ExpressionID) = .empty;
+        var having_expression: ExpressionID = 0;
+        var qualify_expression: ExpressionID = 0;
+        var limit_expression: ExpressionID = 0; // TODO: Just make this an integer maybe
 
         while (!self.isAtEnd()) {
-            const nextToken = self.peek();
+            const next_token = self.peek();
             self.advance();
 
-            switch (nextToken.tokenType) {
+            switch (next_token.token_type) {
                 .With => {
-                    var isMoreToParse = true;
-                    while (isMoreToParse) {
-                        isMoreToParse = false;
+                    var is_more_to_parse = true;
+                    while (is_more_to_parse) {
+                        is_more_to_parse = false;
 
                         const name_token = self.peek();
-                        if (name_token.tokenType != .Identifier) break;
+                        if (name_token.token_type != .Identifier) break;
                         self.advance();
                         if (!(self.consume(.As) or self.consume(.ColonEqual))) break;
                         if (!self.consume(.OpenParen)) break;
                         const body = try self.parseQueryBody(allocator);
 
-                        std.debug.print("Expecting close paren: {any}\n", .{self.peek().tokenType});
+                        std.debug.print("Expecting close paren: {any}\n", .{self.peek().token_type});
 
                         if (!self.consume(.CloseParen)) break;
                         const body_id = try self.addExpression(.{ .subquery = body });
                         try ctes.append(allocator, CteDefinition{
-                            .name_index = name_token.stringIndex,
+                            .name_index = name_token.string_index,
                             .body = body_id,
                         });
 
                         if (self.consume(.Comma)) {
-                            isMoreToParse = true;
+                            is_more_to_parse = true;
                             continue;
                         }
 
-                        if (self.peek().tokenType == .Identifier and self.peek_n_ahead(1).tokenType == .ColonEqual) {
-                            isMoreToParse = true;
+                        if (self.peek().token_type == .Identifier and self.peekNAhead(1).token_type == .ColonEqual) {
+                            is_more_to_parse = true;
                             continue;
                         }
                     }
                 },
                 .Select => {
-                    var newSelectElements = try self.parseExpressionList(false);
-                    try selectExpressions.appendSlice(allocator, newSelectElements.items);
-                    newSelectElements.deinit(allocator);
+                    var new_select_elements = try self.parseExpressionList(false);
+                    try select_expressions.appendSlice(allocator, new_select_elements.items);
+                    new_select_elements.deinit(allocator);
                 },
                 .From => {
-                    currentClause = ClauseType.From;
-                    fromExpression = self.parseExpression() catch 0;
+                    current_clause = ClauseType.From;
+                    from_expression = self.parseExpression() catch 0;
                 },
                 .Where => {
-                    currentClause = ClauseType.Where;
-                    whereExpression = self.parseExpression() catch 0;
+                    current_clause = ClauseType.Where;
+                    where_expression = self.parseExpression() catch 0;
                 },
                 .GroupBy => {
-                    currentClause = ClauseType.GroupBy;
-                    var newGroupElements = try self.parseExpressionList(false);
-                    try groupByExpressions.appendSlice(allocator, newGroupElements.items);
-                    newGroupElements.deinit(allocator);
+                    current_clause = ClauseType.GroupBy;
+                    var new_group_elements = try self.parseExpressionList(false);
+                    try group_by_expressions.appendSlice(allocator, new_group_elements.items);
+                    new_group_elements.deinit(allocator);
                 },
                 .Having => {
-                    currentClause = ClauseType.Having;
-                    havingExpression = self.parseExpression() catch 0;
+                    current_clause = ClauseType.Having;
+                    having_expression = self.parseExpression() catch 0;
                 },
                 .Qualify => {
-                    currentClause = ClauseType.Qualify;
-                    qualifyExpression = self.parseExpression() catch 0;
+                    current_clause = ClauseType.Qualify;
+                    qualify_expression = self.parseExpression() catch 0;
                 },
                 .Join, .InnerJoin, .LeftJoin, .RightJoin, .FullJoin, .CrossJoin => {
-                    const kind: Expression.JoinKind = switch (nextToken.tokenType) {
+                    const kind: Expression.JoinKind = switch (next_token.token_type) {
                         .LeftJoin => .left,
                         .RightJoin => .right,
                         .FullJoin => .full,
@@ -822,13 +821,13 @@ pub const Parser = struct {
                             .on_condition = on_condition,
                         },
                     });
-                    try joinExpressions.append(allocator, join_expr);
+                    try join_expressions.append(allocator, join_expr);
                 },
                 .Limit => {
-                    currentClause = ClauseType.Limit;
-                    const maybeLimit = self.peek();
-                    if (maybeLimit.tokenType == TokenType.Numeric) {
-                        limitExpression = self.parsePrimary() catch 0;
+                    current_clause = ClauseType.Limit;
+                    const maybe_limit = self.peek();
+                    if (maybe_limit.token_type == TokenType.Numeric) {
+                        limit_expression = self.parsePrimary() catch 0;
                     } else {
                         break;
                     }
@@ -841,18 +840,18 @@ pub const Parser = struct {
             .allocator = allocator,
 
             .ctes = ctes,
-            .selectExpressions = selectExpressions,
-            .fromExpression = fromExpression,
-            .joinExpressions = joinExpressions,
-            .whereExpression = whereExpression,
-            .groupByExpressions = groupByExpressions,
-            .havingExpression = havingExpression,
-            .qualifyExpression = qualifyExpression,
-            .limitExpression = limitExpression,
+            .select_expressions = select_expressions,
+            .from_expression = from_expression,
+            .join_expressions = join_expressions,
+            .where_expression = where_expression,
+            .group_by_expressions = group_by_expressions,
+            .having_expression = having_expression,
+            .qualify_expression = qualify_expression,
+            .limit_expression = limit_expression,
 
-            .stringBuffer = self.stringBuffer.items,
+            .string_buffer = self.string_buffer.items,
             .expressions = self.expressions.items,
-            .containsAggregate = false,
+            .contains_aggregate = false,
         };
     }
 };
@@ -861,30 +860,30 @@ fn innerTestHarness(input: String, expected: String) !bool {
     const allocator = std.testing.allocator;
 
     // Weird, so I don't want to deinit the lexed tokens because I pass ownership of them to the parser.
-    const lexedResult = try lexing.lex(allocator, input);
-    var lexStringBuilder = StringBuilder.init(allocator);
-    defer lexStringBuilder.deinit();
+    const lexed_result = try lexing.lex(allocator, input);
+    var lex_string_builder = StringBuilder.init(allocator);
+    defer lex_string_builder.deinit();
 
     // TODO: Fix up this allocation pattern
-    var parser = try Parser.init(allocator, lexedResult);
+    var parser = try Parser.init(allocator, lexed_result);
     defer parser.deinit();
-    var parsedResult = try parser.parse(allocator);
-    defer parsedResult.deinit();
+    var parsed_result = try parser.parse(allocator);
+    defer parsed_result.deinit();
 
-    var output = try parsedResult.render(allocator);
+    var output = try parsed_result.render(allocator);
     defer output.deinit(allocator);
 
-    const didPass = std.mem.eql(u8, expected, output.items);
+    const did_pass = std.mem.eql(u8, expected, output.items);
 
-    if (!didPass) {
+    if (!did_pass) {
         std.debug.print("\n---FAIL---\n", .{});
         std.debug.print("Input: '{s}'\n", .{input});
-        std.debug.print("Lexed: '{s}'\n", .{lexing.buildLexString(lexedResult, &lexStringBuilder)});
+        std.debug.print("Lexed: '{s}'\n", .{lexing.buildLexString(lexed_result, &lex_string_builder)});
         std.debug.print("Expected: '{s}'\n", .{expected});
         std.debug.print("Got:      '{s}'\n", .{output.items});
     }
 
-    return didPass;
+    return did_pass;
 }
 
 fn testHarness(input: String, expected: String) bool {
@@ -985,6 +984,13 @@ test "parse minimal cte" {
 test "implicit select" {
     const input = "xyx";
     const expected = "select * from xyz";
+
+    try std.testing.expect(testHarness(input, expected));
+}
+
+test "select with alias" {
+    const input = "select 1 as xyz";
+    const expected = input;
 
     try std.testing.expect(testHarness(input, expected));
 }

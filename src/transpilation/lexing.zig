@@ -66,98 +66,98 @@ pub const TokenType = enum {
 };
 
 pub const Token = struct {
-    tokenType: TokenType,
-    stringIndex: usize,
+    token_type: TokenType,
+    string_index: usize,
 };
 
 pub const LexedTokens = struct {
     allocator: std.mem.Allocator,
     tokens: std.ArrayList(Token),
-    stringBuffer: std.ArrayList(MutString),
+    string_buffer: std.ArrayList(MutString),
 
     pub fn init(allocator: std.mem.Allocator) !LexedTokens {
         const tokens = try std.ArrayList(Token).initCapacity(allocator, 8);
-        var stringBuffer = try std.ArrayList(MutString).initCapacity(allocator, 8);
+        var string_buffer = try std.ArrayList(MutString).initCapacity(allocator, 8);
 
-        const newString: MutString = .empty;
+        const new_string: MutString = .empty;
 
-        try stringBuffer.append(allocator, newString);
-        return LexedTokens{ .allocator = allocator, .tokens = tokens, .stringBuffer = stringBuffer };
+        try string_buffer.append(allocator, new_string);
+        return LexedTokens{ .allocator = allocator, .tokens = tokens, .string_buffer = string_buffer };
     }
 
     pub fn deinit(self: *LexedTokens) void {
         self.tokens.deinit(self.allocator);
 
-        for (self.stringBuffer.items) |*str| {
+        for (self.string_buffer.items) |*str| {
             str.deinit(self.allocator);
         }
 
-        self.stringBuffer.deinit(self.allocator);
+        self.string_buffer.deinit(self.allocator);
     }
 
-    fn append(self: *LexedTokens, tokenType: TokenType, tokenText: String) !void {
-        if (tokenText.len == 0) {
-            const theToken = Token{ .tokenType = tokenType, .stringIndex = 0 };
-            try self.tokens.append(self.allocator, theToken);
+    fn append(self: *LexedTokens, token_type: TokenType, token_text: String) !void {
+        if (token_text.len == 0) {
+            const token = Token{ .token_type = token_type, .string_index = 0 };
+            try self.tokens.append(self.allocator, token);
             return;
         }
 
-        var newString = try MutString.initCapacity(self.allocator, tokenText.len);
-        try newString.appendSlice(self.allocator, tokenText);
-        const stringIndex = self.stringBuffer.items.len;
+        var new_string = try MutString.initCapacity(self.allocator, token_text.len);
+        try new_string.appendSlice(self.allocator, token_text);
+        const string_index = self.string_buffer.items.len;
 
-        try self.stringBuffer.append(self.allocator, newString);
+        try self.string_buffer.append(self.allocator, new_string);
 
-        const theToken = Token{ .tokenType = tokenType, .stringIndex = stringIndex };
+        const token = Token{ .token_type = token_type, .string_index = string_index };
 
-        try self.tokens.append(self.allocator, theToken);
+        try self.tokens.append(self.allocator, token);
     }
 
     fn getTokenTypes(self: *const LexedTokens, allocator: std.mem.Allocator) !std.ArrayList(TokenType) {
-        var tokenTypes = try std.ArrayList(TokenType).initCapacity(allocator, self.tokens.items.len);
+        var token_types = try std.ArrayList(TokenType).initCapacity(allocator, self.tokens.items.len);
 
         for (self.tokens.items) |token| {
-            try tokenTypes.append(allocator, token.tokenType);
+            try token_types.append(allocator, token.token_type);
         }
-        return tokenTypes;
+        return token_types;
     }
 
     fn debugPrintElement(self: *const LexedTokens, index: usize) void {
-        const theToken = self.tokens.items[index];
-        const theString = self.stringBuffer.items[theToken.stringIndex];
+        const token = self.tokens.items[index];
+        const string = self.string_buffer.items[token.string_index];
 
-        std.debug.print("{any}('{s}') ", .{ theToken.tokenType, theString.items });
+        std.debug.print("{any}('{s}') ", .{ token.token_type, string.items });
     }
 
     pub fn debugPrint(self: *LexedTokens, allocator: std.mem.Allocator) !void {
-        var tokenTypes = try self.getTokenTypes(allocator);
-        defer tokenTypes.deinit(allocator);
+        var token_types = try self.getTokenTypes(allocator);
+        defer token_types.deinit(allocator);
 
-        std.debug.print("{any}\n", .{tokenTypes.items});
+        std.debug.print("{any}\n", .{token_types.items});
 
-        for (0..self.tokens.items.len) |i| {
-            self.debugPrintElement(i);
+        for (0..self.tokens.items.len) |token_index| {
+            self.debugPrintElement(token_index);
         }
         std.debug.print("{s}", .{"\n\n"});
     }
 };
 
-pub fn buildLexString(lexedTokens: LexedTokens, stringBuilder: *StringBuilder) String {
-    stringBuilder.clear();
+pub fn buildLexString(lexed_tokens: LexedTokens, string_builder: *StringBuilder) String {
+    string_builder.clear();
 
-    var buf: [1024]u8 = undefined;
+    var format_buffer: [1024]u8 = undefined;
 
-    for (lexedTokens.tokens.items) |token| {
-        const theString = lexedTokens.stringBuffer.items[token.stringIndex];
+    for (lexed_tokens.tokens.items) |token| {
+        const string = lexed_tokens.string_buffer.items[token.string_index];
 
-        const formattedString = std.fmt.bufPrint(&buf, "{any}('{s}') ", .{ token.tokenType, theString.items }) catch {
+        const formatted_string = std.fmt.bufPrint(&format_buffer, "{any}('{s}') ", .{ token.token_type, string.items }) catch {
             return "<error formatting string>";
         };
 
-        stringBuilder.append(formattedString);
+        string_builder.append(formatted_string);
     }
 
-    return stringBuilder.viewString();
+    return string_builder.viewString();
 }
 
 inline fn isNumeric(char: u8) bool {
@@ -184,23 +184,23 @@ inline fn toAsciiLowercase(char: u8) u8 {
 
 pub const Lexer = struct {
     allocator: std.mem.Allocator,
-    lexedTokens: LexedTokens,
+    lexed_tokens: LexedTokens,
     input: String,
     position: usize,
 
     pub fn init(allocator: std.mem.Allocator, input: String) !Lexer {
-        const lexedTokens = try LexedTokens.init(allocator);
+        const lexed_tokens = try LexedTokens.init(allocator);
 
         return Lexer{
             .allocator = allocator,
-            .lexedTokens = lexedTokens,
+            .lexed_tokens = lexed_tokens,
             .input = input,
             .position = 0,
         };
     }
 
     pub fn deinit(self: *Lexer) void {
-        self.lexedTokens.deinit();
+        self.lexed_tokens.deinit();
     }
 
     fn isAtEnd(self: *Lexer) bool {
@@ -230,9 +230,9 @@ pub const Lexer = struct {
     }
 
     fn consume(self: *Lexer) u8 {
-        const nextByte = self.peek();
+        const next_byte = self.peek();
         self.advance();
-        return nextByte;
+        return next_byte;
     }
 
     fn consumeWordCaseInsensitive(self: *Lexer, allocator: std.mem.Allocator) !MutString {
@@ -242,8 +242,8 @@ pub const Lexer = struct {
             const char = self.peek();
 
             if (isAlpha(char) or isNumeric(char) or char == '_') {
-                const lowerChar = toAsciiLowercase(char);
-                try word.append(allocator, lowerChar);
+                const lower_char = toAsciiLowercase(char);
+                try word.append(allocator, lower_char);
                 self.advance();
             } else {
                 break;
@@ -254,59 +254,59 @@ pub const Lexer = struct {
     }
 
     fn commitTextAsToken(self: *Lexer, text: String) !void {
-        var tokenType = TokenType.Identifier;
+        var token_type = TokenType.Identifier;
 
         if (std.mem.eql(u8, text, "select")) {
-            tokenType = TokenType.Select;
+            token_type = TokenType.Select;
         } else if (std.mem.eql(u8, text, "from")) {
-            tokenType = TokenType.From;
+            token_type = TokenType.From;
         } else {}
 
-        try self.lexedTokens.append(tokenType, text);
+        try self.lexed_tokens.append(token_type, text);
     }
 
     // TODO: Make this stricter. It will ingest tons of invalid numbers.
     fn commitNumber(self: *Lexer) !void {
-        const startPosition = self.position;
-        var numericLength: usize = 0;
+        const start_position = self.position;
+        var numeric_length: usize = 0;
 
-        var lastSeenChar: u8 = 0;
-        var seenExponent = false;
-        var seenDecimal = false;
+        var last_seen_char: u8 = 0;
+        var seen_exponent = false;
+        var seen_decimal = false;
 
         while (!self.isAtEnd()) {
             const char = self.peek();
 
             if (isNumeric(char)) {
                 self.advance();
-                numericLength += 1;
+                numeric_length += 1;
             } else if (char == '-') {
-                if (lastSeenChar == 'e' or lastSeenChar == 'E' or lastSeenChar == 0) {
+                if (last_seen_char == 'e' or last_seen_char == 'E' or last_seen_char == 0) {
                     self.advance();
-                    numericLength += 1;
+                    numeric_length += 1;
                 } else {
                     break;
                 }
-            } else if ((char == 'e' or char == 'E') and !seenExponent) {
-                seenExponent = true;
+            } else if ((char == 'e' or char == 'E') and !seen_exponent) {
+                seen_exponent = true;
                 self.advance();
-                numericLength += 1;
+                numeric_length += 1;
             } else if (char == '.') { // TODO: This isn't precise, since it will match 3e.4 and nonsense like that.
-                seenDecimal = true;
+                seen_decimal = true;
                 self.advance();
-                numericLength += 1;
+                numeric_length += 1;
             } else {
                 break;
             }
-            lastSeenChar = char;
+            last_seen_char = char;
         }
 
-        if (numericLength > 0) {
-            try self.lexedTokens.append(TokenType.Numeric, self.input[startPosition .. startPosition + numericLength]);
+        if (numeric_length > 0) {
+            try self.lexed_tokens.append(TokenType.Numeric, self.input[start_position .. start_position + numeric_length]);
         }
     }
 
-    pub fn resolve_text_token(text: String) TokenType {
+    pub fn resolveTextToken(text: String) TokenType {
         // Reserved words for specific tokens
         if (std.mem.eql(u8, text, "and")) {
             return TokenType.And;
@@ -868,116 +868,116 @@ pub const Lexer = struct {
         return TokenType.Identifier;
     }
 
-    fn tryConsumeJoinToken(self: *Lexer, firstWord: String) !?TokenType {
-        if (!std.mem.eql(u8, firstWord, "inner") and
-            !std.mem.eql(u8, firstWord, "left") and
-            !std.mem.eql(u8, firstWord, "right") and
-            !std.mem.eql(u8, firstWord, "full") and
-            !std.mem.eql(u8, firstWord, "cross")) return null;
+    fn tryConsumeJoinToken(self: *Lexer, first_word: String) !?TokenType {
+        if (!std.mem.eql(u8, first_word, "inner") and
+            !std.mem.eql(u8, first_word, "left") and
+            !std.mem.eql(u8, first_word, "right") and
+            !std.mem.eql(u8, first_word, "full") and
+            !std.mem.eql(u8, first_word, "cross")) return null;
 
-        const savedPosition = self.position;
+        const saved_position = self.position;
 
         while (!self.isAtEnd() and isWhitespace(self.peek())) self.advance();
 
         if (self.isAtEnd() or !isAlpha(self.peek())) {
-            self.position = savedPosition;
+            self.position = saved_position;
             return null;
         }
 
-        var secondWord = try self.consumeWordCaseInsensitive(self.allocator);
-        defer secondWord.deinit(self.allocator);
+        var second_word = try self.consumeWordCaseInsensitive(self.allocator);
+        defer second_word.deinit(self.allocator);
 
-        if (std.mem.eql(u8, secondWord.items, "outer")) {
+        if (std.mem.eql(u8, second_word.items, "outer")) {
             while (!self.isAtEnd() and isWhitespace(self.peek())) self.advance();
 
             if (self.isAtEnd() or !isAlpha(self.peek())) {
-                self.position = savedPosition;
+                self.position = saved_position;
                 return null;
             }
 
-            var thirdWord = try self.consumeWordCaseInsensitive(self.allocator);
-            defer thirdWord.deinit(self.allocator);
+            var third_word = try self.consumeWordCaseInsensitive(self.allocator);
+            defer third_word.deinit(self.allocator);
 
-            if (!std.mem.eql(u8, thirdWord.items, "join")) {
-                self.position = savedPosition;
+            if (!std.mem.eql(u8, third_word.items, "join")) {
+                self.position = saved_position;
                 return null;
             }
 
-            if (std.mem.eql(u8, firstWord, "full")) return TokenType.FullJoin;
-            if (std.mem.eql(u8, firstWord, "left")) return TokenType.LeftJoin;
-            if (std.mem.eql(u8, firstWord, "right")) return TokenType.RightJoin;
-            self.position = savedPosition;
+            if (std.mem.eql(u8, first_word, "full")) return TokenType.FullJoin;
+            if (std.mem.eql(u8, first_word, "left")) return TokenType.LeftJoin;
+            if (std.mem.eql(u8, first_word, "right")) return TokenType.RightJoin;
+            self.position = saved_position;
             return null;
         }
 
-        if (std.mem.eql(u8, secondWord.items, "join")) {
-            if (std.mem.eql(u8, firstWord, "inner")) return TokenType.InnerJoin;
-            if (std.mem.eql(u8, firstWord, "left")) return TokenType.LeftJoin;
-            if (std.mem.eql(u8, firstWord, "right")) return TokenType.RightJoin;
-            if (std.mem.eql(u8, firstWord, "full")) return TokenType.FullJoin;
-            if (std.mem.eql(u8, firstWord, "cross")) return TokenType.CrossJoin;
+        if (std.mem.eql(u8, second_word.items, "join")) {
+            if (std.mem.eql(u8, first_word, "inner")) return TokenType.InnerJoin;
+            if (std.mem.eql(u8, first_word, "left")) return TokenType.LeftJoin;
+            if (std.mem.eql(u8, first_word, "right")) return TokenType.RightJoin;
+            if (std.mem.eql(u8, first_word, "full")) return TokenType.FullJoin;
+            if (std.mem.eql(u8, first_word, "cross")) return TokenType.CrossJoin;
         }
 
-        self.position = savedPosition;
+        self.position = saved_position;
         return null;
     }
 
     pub fn lex(self: *Lexer) !void {
         while (!self.isAtEnd()) {
             const char = self.peek();
-            var tokenType = TokenType.None;
+            var token_type = TokenType.None;
 
             if (isWhitespace(char)) {
                 self.advance();
             } else if (isNumeric(char)) {
                 try self.commitNumber();
             } else if (isAlpha(char)) {
-                var matchedText = try self.consumeWordCaseInsensitive(self.allocator);
-                defer matchedText.deinit(self.allocator);
+                var matched_text = try self.consumeWordCaseInsensitive(self.allocator);
+                defer matched_text.deinit(self.allocator);
 
-                const matchedSlice = matchedText.items[0..];
+                const matched_slice = matched_text.items[0..];
 
-                if (try self.tryConsumeJoinToken(matchedSlice)) |join_token| {
-                    try self.lexedTokens.append(join_token, "");
+                if (try self.tryConsumeJoinToken(matched_slice)) |join_token| {
+                    try self.lexed_tokens.append(join_token, "");
                 } else {
-                    const resolved_token = resolve_text_token(matchedSlice);
-                    try self.lexedTokens.append(resolved_token, matchedSlice);
+                    const resolved_token = resolveTextToken(matched_slice);
+                    try self.lexed_tokens.append(resolved_token, matched_slice);
                 }
             } else if (char == '"') {} else if (char == '\'') {} else {
-                const nextChar = self.peekNext();
+                const next_char = self.peekNext();
 
-                tokenType = switch (char) {
+                token_type = switch (char) {
                     '*' => TokenType.Star,
                     '+' => TokenType.Plus,
                     '-' => TokenType.Minus,
                     '/' => TokenType.Slash,
-                    '<' => switch (nextChar) {
+                    '<' => switch (next_char) {
                         '=' => TokenType.LessThanEqual,
                         '>' => TokenType.NotEqual,
                         else => TokenType.LessThan,
                     },
-                    '>' => switch (nextChar) {
+                    '>' => switch (next_char) {
                         '=' => TokenType.GreaterThanEqual,
                         else => TokenType.GreaterThan,
                     },
                     '=' => TokenType.Equal,
                     '(' => TokenType.OpenParen,
                     ')' => TokenType.CloseParen,
-                    ':' => switch (nextChar) {
+                    ':' => switch (next_char) {
                         ':' => TokenType.DoubleColon,
                         '=' => TokenType.ColonEqual,
                         else => TokenType.Colon,
                     },
                     ',' => TokenType.Comma,
                     '.' => TokenType.Dot,
-                    '!' => switch (nextChar) {
+                    '!' => switch (next_char) {
                         '=' => TokenType.NotEqual,
                         else => TokenType.ExclamationPoint,
                     },
                     else => TokenType.None,
                 };
 
-                _ = switch (tokenType) {
+                _ = switch (token_type) {
                     TokenType.LessThanEqual, TokenType.GreaterThanEqual, TokenType.NotEqual, TokenType.DoubleColon, TokenType.ColonEqual => {
                         self.advanceBy(2);
                     },
@@ -986,19 +986,19 @@ pub const Lexer = struct {
                     },
                 };
 
-                try self.lexedTokens.append(tokenType, "");
+                try self.lexed_tokens.append(token_type, "");
             }
         }
     }
 
     // TODO: Is there a better way to handle ownership here, especially if I arena this?
     pub fn getOwnedResult(self: *Lexer) !LexedTokens {
-        const lexedTokens = self.lexedTokens;
+        const lexed_tokens = self.lexed_tokens;
 
-        self.lexedTokens = try LexedTokens.init(self.allocator);
+        self.lexed_tokens = try LexedTokens.init(self.allocator);
         self.position = 0;
 
-        return lexedTokens;
+        return lexed_tokens;
     }
 };
 
@@ -1015,20 +1015,13 @@ fn testHarness(allocator: std.mem.Allocator, input: String, expect: []const Toke
     defer lexer.deinit();
 
     try lexer.lex();
-    var lexedResult = try lexer.getOwnedResult();
-    defer lexedResult.deinit(); // TODO: Make unmanaged maybe
+    var lexed_result = try lexer.getOwnedResult();
+    defer lexed_result.deinit(); // TODO: Make unmanaged maybe
 
-    var tokenTypes = try lexedResult.getTokenTypes(allocator);
-    defer tokenTypes.deinit(allocator);
+    var token_types = try lexed_result.getTokenTypes(allocator);
+    defer token_types.deinit(allocator);
 
-    // std.debug.print("{any}\n", .{tokenTypes.items});
-
-    // for (0..lexedResult.tokens.items.len) |i| {
-    //     lexedResult.debugPrint(i);
-    // }
-    // std.debug.print("{s}", .{"\n\n"});
-
-    return std.mem.eql(TokenType, tokenTypes.items, expect);
+    return std.mem.eql(TokenType, token_types.items, expect);
 }
 
 test "lex_single_punctuation" {

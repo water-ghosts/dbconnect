@@ -231,63 +231,27 @@ pub const GenericArray = union(enum) {
 
 pub const Column = struct {
     name: [COLUMN_NAME_MAX_BYTES]u8, // I want the Column to own this, right? I don't want a slice to random memory
-    nullMask: BooleanArray,
+    null_mask: BooleanArray,
     array: GenericArray,
 
     fn deinit(self: *Column) void {
-        self.nullMask.deinit();
+        self.null_mask.deinit();
 
         _ = switch (self.array) {
             inline else => |*array| array.deinit(),
         };
     }
 
-    // fn getBoolean(self: *Column, index: u64) ?bool {
-    //     const value = switch (self.array) {
-    //         .booleans => |*bools| bools.getBoolean(index),
-    //         else => false,
-    //     };
-
-    //     return value;
-    // }
-
-    // fn getInteger(self: *Column, index: u64) ?i64 {
-    //     const value = switch (self.array) {
-    //         .integers => |*ints| ints.getInteger(index),
-    //         else => -999,
-    //     };
-
-    //     return value;
-    // }
-
-    // fn getFloat(self: *Column, index: u64) ?f64 {
-    //     const value = switch (self.array) {
-    //         .floats => |*floats| floats.getFloat(index),
-    //         else => -9.9,
-    //     };
-
-    //     return value;
-    // }
-
-    // fn getString(self: *Column, index: u64) ?String {
-    //     const value = switch (self.array) {
-    //         .strings => |*strings| strings.getStringView(index),
-    //         else => "<ERROR>",
-    //     };
-
-    //     return value;
-    // }
-
     fn getColumnName(self: *const Column) String {
-        var endIndex: usize = 0;
-        for (0..COLUMN_NAME_MAX_BYTES) |i| {
-            if (self.name[i] == 0) {
+        var end_index: usize = 0;
+        for (0..COLUMN_NAME_MAX_BYTES) |byte_index| {
+            if (self.name[byte_index] == 0) {
                 break;
             }
-            endIndex += 1;
+            end_index += 1;
         }
 
-        return self.name[0..endIndex];
+        return self.name[0..end_index];
     }
 
     // TODO: This will explode for long strings.
@@ -295,7 +259,7 @@ pub const Column = struct {
     fn writeAsString(self: *const Column, allocator: std.mem.Allocator, index: usize, buffer: *MutString) !String {
         buffer.clearRetainingCapacity();
 
-        var stackBuffer: [1024]u8 = undefined;
+        var stack_buffer: [1024]u8 = undefined;
 
         // If we're null, return NULL
         if (self.isNull(index)) {
@@ -303,8 +267,7 @@ pub const Column = struct {
         }
 
         const slice = switch (self.array) {
-            inline else => |*array| try array.toString(index, stackBuffer[0..]),
-            // .dates => |array| try std.fmt.bufPrint(&stackBuffer, "{s}", .{array.getStringView(index)}),
+            inline else => |*array| try array.toString(index, stack_buffer[0..]),
         };
 
         try buffer.appendSlice(allocator, slice);
@@ -313,8 +276,8 @@ pub const Column = struct {
     }
 
     fn isNull(self: *const Column, index: usize) bool {
-        if (index < self.nullMask.len()) {
-            return self.nullMask.getBoolean(index);
+        if (index < self.null_mask.len()) {
+            return self.null_mask.getBoolean(index);
         } else {
             return false;
         }
@@ -403,8 +366,8 @@ pub fn PrimitiveColumnBuilder(comptime T: type, comptime array_field: []const u8
             try self.nulls.append(self.allocator, false);
         }
 
-        pub fn append(self: *Self, maybeValue: ?T) !void {
-            if (maybeValue) |value| {
+        pub fn append(self: *Self, maybe_value: ?T) !void {
+            if (maybe_value) |value| {
                 try self.values.append(self.allocator, value);
                 try self.nulls.append(self.allocator, false);
             } else {
@@ -425,17 +388,17 @@ pub fn PrimitiveColumnBuilder(comptime T: type, comptime array_field: []const u8
                 else => @compileError("Unsupported type for PrimitiveColumnBuilder"),
             };
 
-            const typedArray = TypedArray{ .allocator = self.allocator, .data = self.values };
+            const typed_array = TypedArray{ .allocator = self.allocator, .data = self.values };
 
             // Use @field to dynamically set the union field at comptime
-            const dataArray = @unionInit(GenericArray, array_field, typedArray);
-            const nullMask = BooleanArray{ .allocator = self.allocator, .data = self.nulls };
-            const col = Column{ .name = self.name, .nullMask = nullMask, .array = dataArray };
+            const data_array = @unionInit(GenericArray, array_field, typed_array);
+            const null_mask = BooleanArray{ .allocator = self.allocator, .data = self.nulls };
+            const column = Column{ .name = self.name, .null_mask = null_mask, .array = data_array };
 
             self.values = .empty;
             self.nulls = .empty;
 
-            return col;
+            return column;
         }
     };
 }
@@ -482,8 +445,8 @@ pub const StringColumnBuilder = struct {
     pub fn appendNotNull(self: *StringColumnBuilder, value: String) !void {
         try self.offsets.append(self.allocator, self.getNextOffset());
 
-        for (0..value.len) |i| {
-            try self.bytes.append(self.allocator, value[i]);
+        for (0..value.len) |byte_index| {
+            try self.bytes.append(self.allocator, value[byte_index]);
         }
         try self.bytes.append(self.allocator, 0);
 
@@ -495,10 +458,10 @@ pub const StringColumnBuilder = struct {
         try self.offsets.append(self.allocator, self.getNextOffset());
 
         const str: [*:0]const u8 = @ptrCast(value);
-        var i: usize = 0;
-        while (str[i] != 0) {
-            try self.bytes.append(self.allocator, str[i]);
-            i += 1;
+        var byte_index: usize = 0;
+        while (str[byte_index] != 0) {
+            try self.bytes.append(self.allocator, str[byte_index]);
+            byte_index += 1;
         }
         try self.bytes.append(self.allocator, 0);
 
@@ -511,51 +474,50 @@ pub const StringColumnBuilder = struct {
         try self.nulls.append(self.allocator, true);
     }
 
-    pub fn append(self: *StringColumnBuilder, maybeValue: ?f64) !void {
-        if (maybeValue == null) {
+    pub fn append(self: *StringColumnBuilder, maybe_value: ?f64) !void {
+        if (maybe_value == null) {
             try self.appendNull();
         } else {
-            try self.appendNotNull(maybeValue.?);
+            try self.appendNotNull(maybe_value.?);
         }
     }
 
     pub fn commit(self: *StringColumnBuilder) Column {
-        const stringArray = StringArray{ .allocator = self.allocator, .bytes = self.bytes, .offsets = self.offsets }; // TODO: Figure out ownership here
-        const dataArray = GenericArray{ .strings = stringArray };
-        const nullMask = BooleanArray{ .allocator = self.allocator, .data = self.nulls };
-        const col = Column{ .name = self.name, .nullMask = nullMask, .array = dataArray };
+        const string_array = StringArray{ .allocator = self.allocator, .bytes = self.bytes, .offsets = self.offsets }; // TODO: Figure out ownership here
+        const data_array = GenericArray{ .strings = string_array };
+        const null_mask = BooleanArray{ .allocator = self.allocator, .data = self.nulls };
+        const column = Column{ .name = self.name, .null_mask = null_mask, .array = data_array };
 
-        return col;
+        return column;
     }
 };
 
 pub const DataSet = struct {
     allocator: ?std.mem.Allocator,
-    numRows: u64,
+    num_rows: u64,
     columns: std.ArrayList(Column),
 
-    pub fn initFromJson(allocator: std.mem.Allocator, jsonSpec: String) !DataSet {
-        const vagueSpec: std.json.Parsed(std.json.Value) = try std.json.parseFromSlice(std.json.Value, allocator, jsonSpec, .{});
-        defer vagueSpec.deinit();
+    pub fn initFromJson(allocator: std.mem.Allocator, json_spec: String) !DataSet {
+        const vague_spec: std.json.Parsed(std.json.Value) = try std.json.parseFromSlice(std.json.Value, allocator, json_spec, .{});
+        defer vague_spec.deinit();
 
-        const spec = vagueSpec.value.object;
+        const spec = vague_spec.value.object;
 
-        // const specData: std.array_list.AlignedManaged(std.json.Value) = spec.get("data").?.array;
-        const specData = spec.get("data").?.array;
+        const spec_data = spec.get("data").?.array;
 
-        var columnList = try std.ArrayList(Column).initCapacity(allocator, 8);
+        var column_list = try std.ArrayList(Column).initCapacity(allocator, 8);
 
-        for (specData.items) |col| {
-            const colName = col.object.get("name").?.string;
-            const dtype = col.object.get("dtype").?.string;
-            const values = col.object.get("values").?.array;
+        for (spec_data.items) |column_spec| {
+            const column_name = column_spec.object.get("name").?.string;
+            const dtype = column_spec.object.get("dtype").?.string;
+            const values = column_spec.object.get("values").?.array;
 
             if (std.mem.eql(u8, dtype, "INTEGER")) {
                 var builder = try IntegerColumnBuilder.init(allocator);
-                builder.setName(colName);
+                builder.setName(column_name);
 
-                for (values.items) |genericValue| {
-                    switch (genericValue) {
+                for (values.items) |generic_value| {
+                    switch (generic_value) {
                         .integer => |value| {
                             try builder.appendNotNull(value);
                         },
@@ -563,19 +525,18 @@ pub const DataSet = struct {
                             try builder.appendNull();
                         },
                         else => {
-                            // std.debug.print("Not an integer: {}", .{genericValue});
                             continue;
                         },
                     }
                 }
-                const builtColumn = builder.commit();
-                try columnList.append(allocator, builtColumn);
+                const built_column = builder.commit();
+                try column_list.append(allocator, built_column);
             } else if (std.mem.eql(u8, dtype, "FLOAT")) {
                 var builder = try FloatColumnBuilder.init(allocator);
-                builder.setName(colName);
+                builder.setName(column_name);
 
-                for (values.items) |genericValue| {
-                    switch (genericValue) {
+                for (values.items) |generic_value| {
+                    switch (generic_value) {
                         .float => |value| {
                             try builder.appendNotNull(value);
                         },
@@ -583,19 +544,18 @@ pub const DataSet = struct {
                             try builder.appendNull();
                         },
                         else => {
-                            // std.debug.print("Not an integer: {}", .{genericValue});
                             continue;
                         },
                     }
                 }
-                const builtColumn = builder.commit();
-                try columnList.append(allocator, builtColumn);
+                const built_column = builder.commit();
+                try column_list.append(allocator, built_column);
             } else if (std.mem.eql(u8, dtype, "BOOLEAN")) {
                 var builder = try BooleanColumnBuilder.init(allocator);
-                builder.setName(colName);
+                builder.setName(column_name);
 
-                for (values.items) |genericValue| {
-                    switch (genericValue) {
+                for (values.items) |generic_value| {
+                    switch (generic_value) {
                         .bool => |value| {
                             try builder.appendNotNull(value);
                         },
@@ -603,20 +563,19 @@ pub const DataSet = struct {
                             try builder.appendNull();
                         },
                         else => {
-                            // std.debug.print("Not an integer: {}", .{genericValue});
                             continue;
                         },
                     }
                 }
-                const builtColumn = builder.commit();
-                try columnList.append(allocator, builtColumn);
+                const built_column = builder.commit();
+                try column_list.append(allocator, built_column);
             } else if (std.mem.eql(u8, dtype, "STRING")) {
                 var builder = try StringColumnBuilder.init(allocator);
-                builder.setName(colName);
+                builder.setName(column_name);
 
                 // TODO: Maybe add this dispatch to the builder?
-                for (values.items) |genericValue| {
-                    switch (genericValue) {
+                for (values.items) |generic_value| {
+                    switch (generic_value) {
                         .string => |value| {
                             try builder.appendNotNull(value);
                         },
@@ -628,22 +587,22 @@ pub const DataSet = struct {
                         },
                     }
                 }
-                const builtColumn = builder.commit();
-                try columnList.append(allocator, builtColumn);
+                const built_column = builder.commit();
+                try column_list.append(allocator, built_column);
             } else {
                 std.debug.print("Not a bool: {s}", .{dtype});
                 continue;
             }
         }
 
-        const dataset = DataSet{ .allocator = allocator, .numRows = 3, .columns = columnList };
+        const dataset = DataSet{ .allocator = allocator, .num_rows = 3, .columns = column_list };
 
         return dataset;
     }
 
     pub fn deinit(self: *DataSet) void {
-        for (self.columns.items) |*col| {
-            col.deinit();
+        for (self.columns.items) |*column| {
+            column.deinit();
         }
         if (self.allocator) |alloc| {
             self.columns.deinit(alloc);
@@ -663,29 +622,29 @@ pub const DataSet = struct {
         // Allocate a bunch of space for the string
         var output = try std.ArrayList(u8).initCapacity(allocator, 1024);
 
-        var workBuffer = try std.ArrayList(u8).initCapacity(allocator, 1024);
-        var quoteBuffer = try std.ArrayList(u8).initCapacity(allocator, 1024);
-        defer workBuffer.deinit(allocator);
-        defer quoteBuffer.deinit(allocator);
+        var work_buffer = try std.ArrayList(u8).initCapacity(allocator, 1024);
+        var quote_buffer = try std.ArrayList(u8).initCapacity(allocator, 1024);
+        defer work_buffer.deinit(allocator);
+        defer quote_buffer.deinit(allocator);
 
-        var isFirstColumn = true;
+        var is_first_column = true;
 
         // Iterate through the cols
         var row_count: usize = 0;
-        for (self.columns.items) |col| {
+        for (self.columns.items) |column| {
             if (row_count > limit) {
                 break;
             }
 
-            const rawColName = col.getColumnName();
+            const raw_column_name = column.getColumnName();
 
-            const colName = try common.quoteForCsv(allocator, rawColName, &quoteBuffer);
+            const column_name = try common.quoteForCsv(allocator, raw_column_name, &quote_buffer);
 
-            if (!isFirstColumn) {
+            if (!is_first_column) {
                 try output.append(allocator, ',');
             }
-            try output.appendSlice(allocator, colName);
-            isFirstColumn = false;
+            try output.appendSlice(allocator, column_name);
+            is_first_column = false;
 
             row_count += 1;
         }
@@ -693,17 +652,17 @@ pub const DataSet = struct {
         try output.append(allocator, '\n');
 
         // Iterate through the rows
-        for (0..self.numRows) |rowIndex| {
-            isFirstColumn = true;
+        for (0..self.num_rows) |row_index| {
+            is_first_column = true;
 
-            for (self.columns.items) |col| {
-                if (!isFirstColumn) {
+            for (self.columns.items) |column| {
+                if (!is_first_column) {
                     try output.append(allocator, ',');
                 }
-                isFirstColumn = false;
+                is_first_column = false;
 
-                const rawSlice = try col.writeAsString(allocator, rowIndex, &workBuffer);
-                const slice = try common.quoteForCsv(allocator, rawSlice, &quoteBuffer);
+                const raw_slice = try column.writeAsString(allocator, row_index, &work_buffer);
+                const slice = try common.quoteForCsv(allocator, raw_slice, &quote_buffer);
 
                 try output.appendSlice(allocator, slice);
             }
@@ -717,30 +676,30 @@ pub const DataSet = struct {
         // Allocate a bunch of space for the string
         var output = try MutString.initCapacity(allocator, 1024);
 
-        var workBuffer = try MutString.initCapacity(allocator, 1024);
-        var escapeBuffer = try MutString.initCapacity(allocator, 1024);
+        var work_buffer = try MutString.initCapacity(allocator, 1024);
+        var escape_buffer = try MutString.initCapacity(allocator, 1024);
 
         try output.appendSlice(allocator, "<table>\n<thead>\n<tr>");
 
         // Iterate through the cols to write thead
-        for (self.columns.items) |col| {
-            const rawColName = col.getColumnName();
-            const colName = try common.escapeHtml(allocator, rawColName, &escapeBuffer);
+        for (self.columns.items) |column| {
+            const raw_column_name = column.getColumnName();
+            const column_name = try common.escapeHtml(allocator, raw_column_name, &escape_buffer);
 
             try output.appendSlice(allocator, "\n<th>");
-            try output.appendSlice(allocator, colName);
+            try output.appendSlice(allocator, column_name);
             try output.appendSlice(allocator, "</th>");
         }
 
         try output.appendSlice(allocator, "\n</tr>\n</thead>\n</tbody>");
 
         // Iterate through the rows
-        for (0..self.numRows) |rowIndex| {
+        for (0..self.num_rows) |row_index| {
             try output.appendSlice(allocator, "\n<tr>");
 
-            for (self.columns.items) |col| {
-                const rawSlice = try col.writeAsString(rowIndex, &workBuffer);
-                const slice = try common.escapeHtml(allocator, rawSlice, &escapeBuffer);
+            for (self.columns.items) |column| {
+                const raw_slice = try column.writeAsString(row_index, &work_buffer);
+                const slice = try common.escapeHtml(allocator, raw_slice, &escape_buffer);
 
                 try output.appendSlice(allocator, "\n<td>");
                 try output.appendSlice(allocator, slice);
@@ -758,6 +717,6 @@ pub const DataSet = struct {
 
 pub const NullDataset = DataSet{
     .allocator = null,
-    .numRows = 0,
+    .num_rows = 0,
     .columns = .empty,
 };

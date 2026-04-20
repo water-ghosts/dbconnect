@@ -17,12 +17,12 @@ const DatabaseError = error{
 };
 
 const RawColumnData = struct {
-    columnId: c.SQLUSMALLINT,
-    columnName: [1024]u8,
-    nameLength: c.SQLSMALLINT,
-    dataType: c.SQLSMALLINT,
-    columnSize: c.SQLULEN,
-    decimalDigits: c.SQLSMALLINT,
+    column_id: c.SQLUSMALLINT,
+    column_name: [1024]u8,
+    name_length: c.SQLSMALLINT,
+    data_type: c.SQLSMALLINT,
+    column_size: c.SQLULEN,
+    decimal_digits: c.SQLSMALLINT,
     nullable: c.SQLSMALLINT,
 };
 
@@ -41,7 +41,7 @@ const ColumnFeeder = struct {
 
     value: ValueBuffer,
     indicator: c.SQLLEN,
-    columnId: c.SQLUSMALLINT,
+    column_id: c.SQLUSMALLINT,
     builder: *datastores.ColumnBuilder,
 
     pub fn getValuePointer(self: *Self) *anyopaque {
@@ -53,7 +53,7 @@ const ColumnFeeder = struct {
     }
 
     pub fn getColumnId(self: *Self) *c.SQLUSMALLINT {
-        return self.columnId;
+        return self.column_id;
     }
 
     pub fn commitFetch(self: *Self) !void {
@@ -86,34 +86,34 @@ const BuildersAndFeeders = struct {
 };
 
 pub const DatabaseConnection = struct {
-    environmentHandle: c.SQLHENV,
-    connectionHandle: c.SQLHDBC,
+    environment_handle: c.SQLHENV,
+    connection_handle: c.SQLHDBC,
 
     pub fn init(allocator: std.mem.Allocator, connection_string: common.String) !DatabaseConnection {
-        var environmentHandle: c.SQLHENV = undefined;
-        var connectionHandle: c.SQLHDBC = undefined;
+        var environment_handle: c.SQLHENV = undefined;
+        var connection_handle: c.SQLHDBC = undefined;
         var sql_response: c.SQLRETURN = undefined;
 
         const raw_connection_string_output = std.mem.zeroes([1024]u8);
         var connection_string_output_length: c.SQLSMALLINT = 1024;
 
-        sql_response = c.SQLAllocHandle(c.SQL_HANDLE_ENV, null, &environmentHandle);
+        sql_response = c.SQLAllocHandle(c.SQL_HANDLE_ENV, null, &environment_handle);
         if (!c.SQL_SUCCEEDED(sql_response)) {
             _ = c.printf("Failed to allocate ODBC environment handle (return code: %d)\n", sql_response);
             return error.GeneralError;
         }
 
-        sql_response = c.SQLSetEnvAttr(environmentHandle, c.SQL_ATTR_ODBC_VERSION, @ptrFromInt(c.SQL_OV_ODBC3), 0);
+        sql_response = c.SQLSetEnvAttr(environment_handle, c.SQL_ATTR_ODBC_VERSION, @ptrFromInt(c.SQL_OV_ODBC3), 0);
         if (!c.SQL_SUCCEEDED(sql_response)) {
             _ = c.printf("Failed to set ODBC version attribute (return code: %d)\n", sql_response);
-            printODBCDiagnostics(c.SQL_HANDLE_ENV, environmentHandle);
+            printODBCDiagnostics(c.SQL_HANDLE_ENV, environment_handle);
             return error.GeneralError;
         }
 
-        sql_response = c.SQLAllocHandle(c.SQL_HANDLE_DBC, environmentHandle, &connectionHandle);
+        sql_response = c.SQLAllocHandle(c.SQL_HANDLE_DBC, environment_handle, &connection_handle);
         if (!c.SQL_SUCCEEDED(sql_response)) {
             _ = c.printf("Failed to allocate ODBC connection handle (return code: %d)\n", sql_response);
-            printODBCDiagnostics(c.SQL_HANDLE_ENV, environmentHandle);
+            printODBCDiagnostics(c.SQL_HANDLE_ENV, environment_handle);
             return error.GeneralError;
         }
 
@@ -123,95 +123,95 @@ pub const DatabaseConnection = struct {
         const connection_string_output = try allocator.dupeZ(u8, &raw_connection_string_output);
         defer allocator.free(connection_string_output);
 
-        sql_response = c.SQLDriverConnect(connectionHandle, null, c_connection_string, c.SQL_NTS, connection_string_output, 1024, &connection_string_output_length, c.SQL_DRIVER_COMPLETE);
+        sql_response = c.SQLDriverConnect(connection_handle, null, c_connection_string, c.SQL_NTS, connection_string_output, 1024, &connection_string_output_length, c.SQL_DRIVER_COMPLETE);
 
         if (!c.SQL_SUCCEEDED(sql_response)) {
             _ = c.printf("SQLDriverConnect failed (return code: %d)\n", sql_response);
-            printODBCDiagnostics(c.SQL_HANDLE_DBC, connectionHandle);
+            printODBCDiagnostics(c.SQL_HANDLE_DBC, connection_handle);
             return error.GeneralError;
         }
 
         return DatabaseConnection{
-            .environmentHandle = environmentHandle,
-            .connectionHandle = connectionHandle,
+            .environment_handle = environment_handle,
+            .connection_handle = connection_handle,
         };
     }
 
     pub fn deinit(self: *DatabaseConnection) void {
-        _ = c.SQLFreeHandle(c.SQL_HANDLE_DBC, self.connectionHandle);
-        _ = c.SQLFreeHandle(c.SQL_HANDLE_ENV, self.environmentHandle);
+        _ = c.SQLFreeHandle(c.SQL_HANDLE_DBC, self.connection_handle);
+        _ = c.SQLFreeHandle(c.SQL_HANDLE_ENV, self.environment_handle);
     }
 };
 
-fn bufferToString(buf: *const u8, max_length: usize) common.String {
-    var i: usize = 0;
-    const cBuffer: common.CString = @ptrCast(buf);
+fn bufferToString(buffer: *const u8, max_length: usize) common.String {
+    var position: usize = 0;
+    const c_buffer: common.CString = @ptrCast(buffer);
 
-    while (i < max_length) {
-        if (cBuffer[i] == 0) {
+    while (position < max_length) {
+        if (c_buffer[position] == 0) {
             break;
         }
-        i += 1;
+        position += 1;
     }
 
-    return cBuffer[0 .. i + 1];
+    return c_buffer[0 .. position + 1];
 }
 
-fn printODBCDiagnostics(handleType: c.SQLSMALLINT, handle: c.SQLHANDLE) void {
-    var i: c.SQLSMALLINT = 1;
-    var sqlState: [6]u8 = undefined;
-    var nativeError: c.SQLINTEGER = undefined;
-    var messageText: [1024]u8 = undefined;
-    var textLength: c.SQLSMALLINT = undefined;
+fn printODBCDiagnostics(handle_type: c.SQLSMALLINT, handle: c.SQLHANDLE) void {
+    var record_index: c.SQLSMALLINT = 1;
+    var sql_state: [6]u8 = undefined;
+    var native_error: c.SQLINTEGER = undefined;
+    var message_text: [1024]u8 = undefined;
+    var text_length: c.SQLSMALLINT = undefined;
 
     _ = c.printf("ODBC Error Details:\n");
 
     while (true) {
         const result = c.SQLGetDiagRec(
-            handleType,
+            handle_type,
             handle,
-            i,
-            &sqlState,
-            &nativeError,
-            &messageText,
+            record_index,
+            &sql_state,
+            &native_error,
+            &message_text,
             1024,
-            &textLength,
+            &text_length,
         );
 
         if (!c.SQL_SUCCEEDED(result)) {
             break;
         }
 
-        _ = c.printf("  [%s] (%d) %s\n", &sqlState, nativeError, &messageText);
-        i += 1;
+        _ = c.printf("  [%s] (%d) %s\n", &sql_state, native_error, &message_text);
+        record_index += 1;
     }
 }
 
-fn getColumnData(allocator: std.mem.Allocator, statementHandle: c.SQLHSTMT) !std.ArrayList(RawColumnData) {
+fn getColumnData(allocator: std.mem.Allocator, statement_handle: c.SQLHSTMT) !std.ArrayList(RawColumnData) {
 
     // Get data on how many columns there were
     var num_columns: c.SQLSMALLINT = 0;
-    _ = c.SQLNumResultCols(statementHandle, &num_columns);
+    _ = c.SQLNumResultCols(statement_handle, &num_columns);
 
     var columns = try std.ArrayList(RawColumnData).initCapacity(allocator, @intCast(num_columns));
 
     // Describe each column
-    for (1..@intCast(num_columns + 1)) |col| {
-        const columnId: c.SQLUSMALLINT = @intCast(col);
+    for (1..@intCast(num_columns + 1)) |column_index| {
+        const column_id: c.SQLUSMALLINT = @intCast(column_index);
 
         var raw_data: RawColumnData = undefined;
-        raw_data.columnId = columnId;
+        raw_data.column_id = column_id;
 
         // This will populate the remaining fields of the column data
         _ = c.SQLDescribeCol(
-            statementHandle,
-            columnId,
-            &raw_data.columnName,
+            statement_handle,
+            column_id,
+            &raw_data.column_name,
             1024,
-            &raw_data.nameLength,
-            &raw_data.dataType,
-            &raw_data.columnSize,
-            &raw_data.decimalDigits,
+            &raw_data.name_length,
+            &raw_data.data_type,
+            &raw_data.column_size,
+            &raw_data.decimal_digits,
             &raw_data.nullable,
         );
 
@@ -231,15 +231,15 @@ fn createBuildersAndFeeders(
     var feeders = try std.ArrayList(ColumnFeeder).initCapacity(allocator, column_data.items.len);
     errdefer feeders.deinit(allocator);
 
-    for (column_data.items) |col| {
-        _ = c.printf("Column datatype: %d, digits: %d\n", col.dataType, col.decimalDigits);
+    for (column_data.items) |column| {
+        _ = c.printf("Column datatype: %d, digits: %d\n", column.data_type, column.decimal_digits);
 
         var value_buffer: ValueBuffer = undefined;
         var builder: datastores.ColumnBuilder = undefined;
 
-        switch (col.dataType) {
+        switch (column.data_type) {
             c.SQL_NUMERIC, c.SQL_DECIMAL, c.SQL_INTEGER, c.SQL_FLOAT, c.SQL_DOUBLE => {
-                const use_float = (col.dataType == c.SQL_FLOAT or col.dataType == c.SQL_DOUBLE or col.decimalDigits > 0);
+                const use_float = (column.data_type == c.SQL_FLOAT or column.data_type == c.SQL_DOUBLE or column.decimal_digits > 0);
 
                 if (use_float) {
                     const raw_builder = try datastores.FloatColumnBuilder.init(allocator);
@@ -277,7 +277,7 @@ fn createBuildersAndFeeders(
                 value_buffer = ValueBuffer{ .time = undefined };
             },
             else => {
-                _ = c.printf("Unsupported data type: %d\n", col.dataType);
+                _ = c.printf("Unsupported data type: %d\n", column.data_type);
                 return DatabaseError.GeneralError;
             },
         }
@@ -285,9 +285,9 @@ fn createBuildersAndFeeders(
         try builders.append(allocator, builder);
         const builder_ptr = &builders.items[builders.items.len - 1];
 
-        builder_ptr.setName(col.columnName[0..256]);
+        builder_ptr.setName(column.column_name[0..256]);
 
-        const feeder = ColumnFeeder{ .builder = builder_ptr, .indicator = undefined, .value = value_buffer, .columnId = col.columnId };
+        const feeder = ColumnFeeder{ .builder = builder_ptr, .indicator = undefined, .value = value_buffer, .column_id = column.column_id };
 
         try feeders.append(allocator, feeder);
     }
@@ -300,45 +300,45 @@ fn createBuildersAndFeeders(
 
 pub fn executeQuery(allocator: std.mem.Allocator, connection: DatabaseConnection, query: []const u8) !datastores.DataSet {
     // Initialize Statement Handle
-    var statementHandle: c.SQLHSTMT = null;
-    _ = c.SQLAllocHandle(c.SQL_HANDLE_STMT, connection.connectionHandle, &statementHandle);
-    defer _ = c.SQLFreeHandle(c.SQL_HANDLE_STMT, statementHandle);
+    var statement_handle: c.SQLHSTMT = null;
+    _ = c.SQLAllocHandle(c.SQL_HANDLE_STMT, connection.connection_handle, &statement_handle);
+    defer _ = c.SQLFreeHandle(c.SQL_HANDLE_STMT, statement_handle);
 
     // Run the query
     const real_query = try allocator.dupeZ(u8, query);
     defer allocator.free(real_query);
-    const execution_result = c.SQLExecDirect(statementHandle, real_query, c.SQL_NTS);
+    const execution_result = c.SQLExecDirect(statement_handle, real_query, c.SQL_NTS);
 
     if (!c.SQL_SUCCEEDED(execution_result)) {
-        printODBCDiagnostics(c.SQL_HANDLE_STMT, statementHandle);
+        printODBCDiagnostics(c.SQL_HANDLE_STMT, statement_handle);
         return DatabaseError.GeneralError;
     }
 
     // Get data on columns
-    var column_data = try getColumnData(allocator, statementHandle);
+    var column_data = try getColumnData(allocator, statement_handle);
     defer column_data.deinit(allocator);
 
     // Create builders and feeders
-    var bf = try createBuildersAndFeeders(allocator, column_data);
-    defer bf.builders.deinit(allocator);
-    defer bf.feeders.deinit(allocator);
+    var builders_and_feeders = try createBuildersAndFeeders(allocator, column_data);
+    defer builders_and_feeders.builders.deinit(allocator);
+    defer builders_and_feeders.feeders.deinit(allocator);
 
     // Bind feeders to ODBC
-    for (bf.feeders.items) |*feeder| {
+    for (builders_and_feeders.feeders.items) |*feeder| {
         const value_pointer = feeder.getValuePointer();
         const indicator_pointer = feeder.getIndicatorPointer();
         const c_target_type = feeder.getTargetType();
 
-        _ = c.SQLBindCol(statementHandle, feeder.columnId, c_target_type, value_pointer, BIND_BUFFER_LENGTH, indicator_pointer);
+        _ = c.SQLBindCol(statement_handle, feeder.column_id, c_target_type, value_pointer, BIND_BUFFER_LENGTH, indicator_pointer);
     }
 
     var num_rows: usize = 0;
 
     // For each row, ODBC writes to feeder buffers, then feeders push to builders
-    while (c.SQL_SUCCEEDED(c.SQLFetch(statementHandle))) {
+    while (c.SQL_SUCCEEDED(c.SQLFetch(statement_handle))) {
         num_rows += 1;
 
-        for (bf.feeders.items) |*feeder| {
+        for (builders_and_feeders.feeders.items) |*feeder| {
 
             // TODO: If indicator > buffer size, then fall back to SQLGetValue
 
@@ -348,13 +348,13 @@ pub fn executeQuery(allocator: std.mem.Allocator, connection: DatabaseConnection
 
     // Commit builders to create final immutable columns
     var columns = try std.ArrayList(datastores.Column).initCapacity(allocator, column_data.items.len);
-    for (bf.builders.items) |*builder| {
-        const new_col = builder.commit();
-        try columns.append(allocator, new_col);
+    for (builders_and_feeders.builders.items) |*builder| {
+        const new_column = builder.commit();
+        try columns.append(allocator, new_column);
     }
 
-    const the_data = datastores.DataSet{ .allocator = allocator, .numRows = num_rows, .columns = columns };
+    const dataset = datastores.DataSet{ .allocator = allocator, .num_rows = num_rows, .columns = columns };
 
     _ = c.printf("Data loaded!\n");
-    return the_data;
+    return dataset;
 }

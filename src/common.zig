@@ -28,24 +28,24 @@ pub const ResizableBuffer = struct {
     }
 
     fn getNewCapacity(self: *ResizableBuffer) usize {
-        const proposedCapacityGrowth = self.capacity; // Default to doubling
+        const proposed_capacity_growth = self.capacity; // Default to doubling
 
         // Not sure if this matters but prevent small or gigantic growth
-        const actualGrowth = if (proposedCapacityGrowth < 1024)
+        const actual_growth = if (proposed_capacity_growth < 1024)
             1024
-        else if (proposedCapacityGrowth > 65536)
+        else if (proposed_capacity_growth > 65536)
             65536
         else
-            proposedCapacityGrowth;
+            proposed_capacity_growth;
 
-        return self.capacity + actualGrowth;
+        return self.capacity + actual_growth;
     }
 
     fn grow(self: *ResizableBuffer) !void {
-        const newCapacity = self.getNewCapacity();
+        const new_capacity = self.getNewCapacity();
 
-        self.bytes = try self.allocator.realloc(self.bytes, newCapacity);
-        self.capacity = newCapacity;
+        self.bytes = try self.allocator.realloc(self.bytes, new_capacity);
+        self.capacity = new_capacity;
     }
 
     pub fn clear(self: *ResizableBuffer) void {
@@ -86,13 +86,13 @@ pub fn quoteForCsv(allocator: std.mem.Allocator, input: String, buffer: *MutStri
     buffer.clearRetainingCapacity();
     try buffer.append(allocator, '"');
 
-    var requiresQuote = false;
+    var requires_quote = false;
 
     for (input) |char| {
         if (char == ',') {
-            requiresQuote = true;
+            requires_quote = true;
         } else if (char == '"') {
-            requiresQuote = true;
+            requires_quote = true;
             try buffer.append(allocator, '"');
         } else if (char == 0) {
             break;
@@ -100,7 +100,7 @@ pub fn quoteForCsv(allocator: std.mem.Allocator, input: String, buffer: *MutStri
         try buffer.append(allocator, char);
     }
 
-    if (requiresQuote) {
+    if (requires_quote) {
         try buffer.append(allocator, '"');
         return buffer.items;
     } else {
@@ -165,15 +165,15 @@ pub const StringBuilder = struct {
     }
 
     pub fn toOwnedMutString(self: *StringBuilder) MutString {
-        const oldBuffer = self.buffer;
+        const old_buffer = self.buffer;
         self.buffer = .empty;
 
-        return oldBuffer;
+        return old_buffer;
     }
 
     pub fn toOwnedString(self: *StringBuilder) !String {
-        const ownedMut = self.toOwnedMutString();
-        return ownedMut.toOwnedSlice(self.allocator);
+        const owned_mut = self.toOwnedMutString();
+        return owned_mut.toOwnedSlice(self.allocator);
     }
 
     pub fn clear(self: *StringBuilder) void {
@@ -206,8 +206,8 @@ pub fn endsWith(str: String, char: u8) bool {
 }
 
 // TODO: Simplify this by writing to a provided buffer, hopefully avoiding allocation
-pub fn resolveFilepath(allocator: std.mem.Allocator, rawFilepath: String, defaultDirectory: String) !String {
-    const filepath = std.mem.trim(u8, rawFilepath, &std.ascii.whitespace);
+pub fn resolveFilepath(allocator: std.mem.Allocator, raw_filepath: String, default_directory: String) !String {
+    const filepath = std.mem.trim(u8, raw_filepath, &std.ascii.whitespace);
 
     // Check if the filepath is absolute (starts with '/' on Unix)
     if (startsWith(filepath, '/')) {
@@ -215,26 +215,26 @@ pub fn resolveFilepath(allocator: std.mem.Allocator, rawFilepath: String, defaul
         return try allocator.dupe(u8, filepath);
     }
 
-    // Relative path - concatenate with defaultDirectory
-    // Ensure defaultDirectory ends with '/' if it doesn't already
-    const needsSlash = !endsWith(defaultDirectory, '/');
-    const totalLen = defaultDirectory.len + (if (needsSlash) @as(usize, 1) else 0) + filepath.len;
+    // Relative path - concatenate with default_directory
+    // Ensure default_directory ends with '/' if it doesn't already
+    const needs_slash = !endsWith(default_directory, '/');
+    const total_length = default_directory.len + (if (needs_slash) @as(usize, 1) else 0) + filepath.len;
 
-    const resolved = try allocator.alloc(u8, totalLen);
-    var pos: usize = 0;
+    const resolved = try allocator.alloc(u8, total_length);
+    var write_position: usize = 0;
 
-    // Copy defaultDirectory
-    @memcpy(resolved[pos..][0..defaultDirectory.len], defaultDirectory);
-    pos += defaultDirectory.len;
+    // Copy default_directory
+    @memcpy(resolved[write_position..][0..default_directory.len], default_directory);
+    write_position += default_directory.len;
 
     // Add separator if needed
-    if (needsSlash) {
-        resolved[pos] = '/';
-        pos += 1;
+    if (needs_slash) {
+        resolved[write_position] = '/';
+        write_position += 1;
     }
 
     // Copy filepath
-    @memcpy(resolved[pos..][0..filepath.len], filepath);
+    @memcpy(resolved[write_position..][0..filepath.len], filepath);
 
     return resolved;
 }

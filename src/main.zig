@@ -116,8 +116,8 @@ pub fn parseCommand(raw_command: String) ParsedCommand {
     // Find the first space to separate command from args
     const space_index = std.mem.indexOfScalar(u8, command, ' ');
 
-    const first_word = if (space_index) |idx| command[0..idx] else command;
-    const args = if (space_index) |idx| std.mem.trim(u8, command[idx + 1 ..], &std.ascii.whitespace) else "";
+    const first_word = if (space_index) |index| command[0..index] else command;
+    const args = if (space_index) |index| std.mem.trim(u8, command[index + 1 ..], &std.ascii.whitespace) else "";
 
     // Determine command type based on first word
     const verb = if (stringsMatch(first_word, "quit"))
@@ -170,9 +170,9 @@ pub fn parseConfig(allocator: std.mem.Allocator, config_path: String) !Config {
         const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
         if (trimmed.len == 0) continue;
 
-        const eq_idx = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
-        const key = std.mem.trim(u8, trimmed[0..eq_idx], &std.ascii.whitespace);
-        var value = std.mem.trim(u8, trimmed[eq_idx + 1 ..], &std.ascii.whitespace);
+        const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
+        const key = std.mem.trim(u8, trimmed[0..equals_index], &std.ascii.whitespace);
+        var value = std.mem.trim(u8, trimmed[equals_index + 1 ..], &std.ascii.whitespace);
 
         if (value.len >= 2 and value[0] == '"' and value[value.len - 1] == '"') {
             value = value[1 .. value.len - 1];
@@ -195,9 +195,9 @@ pub fn parseConfig(allocator: std.mem.Allocator, config_path: String) !Config {
 }
 
 // TODO: This is not actually valid TOML. Maybe I comment out the preview lines?
-fn log_query(allocator: std.mem.Allocator, directory: String, query: String, dataset: *const datastores.DataSet) !void {
+fn logQuery(allocator: std.mem.Allocator, directory: String, query: String, dataset: *const datastores.DataSet) !void {
     var filepath_buffer: [1024]u8 = undefined;
-    const filepath = try logging.get_dated_filepath(directory, &filepath_buffer);
+    const filepath = try logging.getDatedFilepath(directory, &filepath_buffer);
 
     const csv = try dataset.toCsvPreview(allocator, CSV_PREVIEW_SIZE);
     defer allocator.free(csv);
@@ -223,7 +223,7 @@ fn getConfigPath(allocator: std.mem.Allocator) !String {
     return config_path;
 }
 
-pub fn main_loop(context: *ReplContext) !void {
+pub fn mainLoop(context: *ReplContext) !void {
     const persistent_allocator = context.persistent_allocator;
     const scratch_allocator = context.scratchAllocator();
 
@@ -324,7 +324,7 @@ pub fn main_loop(context: *ReplContext) !void {
 
                 context.dataset = new_dataset;
 
-                try log_query(scratch_allocator, context.query_log_dir, context.raw_query_buffer.readVolatile(), &context.dataset);
+                try logQuery(scratch_allocator, context.query_log_dir, context.raw_query_buffer.readVolatile(), &context.dataset);
             },
             CommandType.TRANSPILE => {
                 const transpiled = try transpiler.transpile(scratch_allocator, context.raw_query_buffer.readVolatile());
@@ -332,10 +332,6 @@ pub fn main_loop(context: *ReplContext) !void {
                 context.raw_query_buffer.appendSlice(transpiled.items);
             },
         }
-
-        // // Render (perhaps with clear screen)
-        // try stdout.print("{s}\n", .{input});
-        // try stdout.flush();
     }
 }
 
@@ -354,13 +350,13 @@ pub fn main() !void {
     var context = try ReplContext.init(allocator);
     defer context.deinit();
 
-    try main_loop(&context);
+    try mainLoop(&context);
 }
 
 test "JSONIntegrationTest" {
     var allocator = std.testing.allocator;
 
-    const jsonSpec: String =
+    const json_spec: String =
         \\{
         \\    "rowCount": 3,
         \\    "data": [
@@ -404,11 +400,11 @@ test "JSONIntegrationTest" {
         \\}
     ;
 
-    var dataset = try datastores.DataSet.initFromJson(allocator, jsonSpec);
+    var dataset = try datastores.DataSet.initFromJson(allocator, json_spec);
     defer dataset.deinit();
 
-    const the_csv = try dataset.toCsv(allocator);
-    defer allocator.free(the_csv);
+    const csv_data = try dataset.toCsv(allocator);
+    defer allocator.free(csv_data);
 
     const expected: String =
         \\account_id,revenue,is_pretty_cool,"eek, a string column"
@@ -418,7 +414,7 @@ test "JSONIntegrationTest" {
         \\
     ;
 
-    try std.testing.expect(std.mem.eql(u8, the_csv, expected));
+    try std.testing.expect(std.mem.eql(u8, csv_data, expected));
 }
 
 test {
