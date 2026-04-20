@@ -73,7 +73,7 @@ If that proves not to be true, that will itself be a learning experience 🙂)
 
 - Use type aliases to communicate intent (e.g. call something a Path, not a []const u8).
 
-Per https://ziglang.org/documentation/0.16.0/#Style-Guide :
+Per https://ziglang.org/documentation/0.16.0/#Names :
 
 - If x is a struct with 0 fields and is never meant to be instantiated, then x is considered to be a "namespace" and should be snake_case.
 
