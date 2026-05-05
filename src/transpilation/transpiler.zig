@@ -14,8 +14,6 @@ pub fn transpile(allocator: std.mem.Allocator, input: String) !MutString {
     _ = try lexer.lex();
     const lexed_result = try lexer.getOwnedResult();
 
-    std.debug.print("Lexed: {any}\n", .{lexed_result.tokens.items});
-
     // TODO: Fix up this allocation pattern
     var parser = try parsing.Parser.init(allocator, lexed_result);
     defer parser.deinit();

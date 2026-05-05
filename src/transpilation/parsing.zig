@@ -622,10 +622,8 @@ pub const Parser = struct {
 
         while (!self.isAtEnd()) {
             const next_token = self.peek();
-            std.debug.print("Peek: {any}\n", .{next_token.token_type});
 
             if (isNewClause(next_token)) {
-                std.debug.print("Breaking\n", .{});
                 break;
             }
 
@@ -799,7 +797,7 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Parser, allocator: std.mem.Allocator) !MinimalParsedQuery {
-        var current_clause: ClauseType = ClauseType.Select;
+        var current_clause: ClauseType = .From;
 
         var ctes: std.ArrayList(CteDefinition) = .empty;
         var select_expressions: std.ArrayList(ExpressionID) = .empty;
@@ -812,72 +810,50 @@ pub const Parser = struct {
         var limit_expression: ExpressionID = 0; // TODO: Just make this an integer maybe
 
         while (!self.isAtEnd()) {
-            const next_token = self.peek();
-            self.advance();
+            const token = self.peek();
 
-            switch (next_token.token_type) {
-                .With => {
-                    var is_more_to_parse = true;
-                    while (is_more_to_parse) {
-                        is_more_to_parse = false;
+            // CTEs: unique structure that can't be reduced to clause dispatch.
+            if (token.token_type == .With) {
+                self.advance();
+                var is_more_to_parse = true;
+                while (is_more_to_parse) {
+                    is_more_to_parse = false;
 
-                        const name_token = self.peek();
-                        if (name_token.token_type != .Identifier) break;
-                        self.advance();
-                        if (!(self.consume(.As) or self.consume(.ColonEqual))) break;
-                        if (!self.consume(.OpenParen)) break;
-                        const body = try self.parseQueryBody(allocator);
+                    const name_token = self.peek();
+                    if (name_token.token_type != .Identifier) break;
+                    self.advance();
+                    if (!(self.consume(.As) or self.consume(.ColonEqual))) break;
+                    if (!self.consume(.OpenParen)) break;
+                    const body = try self.parseQueryBody(allocator);
 
-                        std.debug.print("Expecting close paren: {any}\n", .{self.peek().token_type});
+                    if (!self.consume(.CloseParen)) break;
+                    const body_id = try self.addExpression(.{ .subquery = body });
+                    try ctes.append(allocator, CteDefinition{
+                        .name_index = name_token.string_index,
+                        .body = body_id,
+                    });
 
-                        if (!self.consume(.CloseParen)) break;
-                        const body_id = try self.addExpression(.{ .subquery = body });
-                        try ctes.append(allocator, CteDefinition{
-                            .name_index = name_token.string_index,
-                            .body = body_id,
-                        });
-
-                        if (self.consume(.Comma)) {
-                            is_more_to_parse = true;
-                            continue;
-                        }
-
-                        if (self.peek().token_type == .Identifier and self.peekNAhead(1).token_type == .ColonEqual) {
-                            is_more_to_parse = true;
-                            continue;
-                        }
+                    if (self.consume(.Comma)) {
+                        is_more_to_parse = true;
+                        continue;
                     }
-                },
-                .Select => {
-                    var new_select_elements = try self.parseSelectElementList();
-                    try select_expressions.appendSlice(allocator, new_select_elements.items);
-                    new_select_elements.deinit(allocator);
-                },
-                .From => {
-                    current_clause = ClauseType.From;
-                    const table_expr = self.parseExpression() catch 0;
-                    from_expression = try self.parseOptionalAlias(table_expr);
-                },
-                .Where => {
-                    current_clause = ClauseType.Where;
-                    where_expression = self.parseExpression() catch 0;
-                },
-                .GroupBy => {
-                    current_clause = ClauseType.GroupBy;
-                    var new_group_elements = try self.parseExpressionList(false);
-                    try group_by_expressions.appendSlice(allocator, new_group_elements.items);
-                    new_group_elements.deinit(allocator);
-                },
-                .Having => {
-                    current_clause = ClauseType.Having;
-                    having_expression = self.parseExpression() catch 0;
-                },
-                .Qualify => {
-                    current_clause = ClauseType.Qualify;
-                    qualify_expression = self.parseExpression() catch 0;
-                },
+
+                    if (self.peek().token_type == .Identifier and self.peekNAhead(1).token_type == .ColonEqual) {
+                        is_more_to_parse = true;
+                        continue;
+                    }
+                }
+                continue;
+            }
+
+            // Step 1: check whether the current token opens a new clause.
+            // Joins carry kind info in the keyword itself, so they are handled directly
+            // and skip Step 2 via continue. All other clause keywords update current_clause
+            // and advance past the keyword; content tokens fall through without advancing.
+            switch (token.token_type) {
                 .Join, .InnerJoin, .LeftJoin, .RightJoin, .FullJoin, .CrossJoin => {
-                    const kind: Expression.JoinKind = switch (next_token.token_type) {
+                    self.advance();
+                    const kind: Expression.JoinKind = switch (token.token_type) {
                         .LeftJoin => .left,
                         .RightJoin => .right,
                         .FullJoin => .full,
@@ -898,17 +874,50 @@ pub const Parser = struct {
                         },
                     });
                     try join_expressions.append(allocator, join_expr);
+                    continue;
+                },
+                .Select  => { current_clause = .Select;  self.advance(); },
+                .From    => { current_clause = .From;    self.advance(); },
+                .Where   => { current_clause = .Where;   self.advance(); },
+                .GroupBy => { current_clause = .GroupBy; self.advance(); },
+                .Having  => { current_clause = .Having;  self.advance(); },
+                .Qualify => { current_clause = .Qualify; self.advance(); },
+                .Limit   => { current_clause = .Limit;   self.advance(); },
+                else => {}, // Content token: don't advance, fall through to Step 2.
+            }
+
+            // Step 2: parse content for the current clause.
+            switch (current_clause) {
+                .Select => {
+                    var elems = try self.parseSelectElementList();
+                    try select_expressions.appendSlice(allocator, elems.items);
+                    elems.deinit(allocator);
+                },
+                .From => {
+                    const table_expr = self.parseExpression() catch 0;
+                    from_expression = try self.parseOptionalAlias(table_expr);
+                },
+                .Where => {
+                    where_expression = self.parseExpression() catch 0;
+                },
+                .GroupBy => {
+                    var elems = try self.parseExpressionList(false);
+                    try group_by_expressions.appendSlice(allocator, elems.items);
+                    elems.deinit(allocator);
+                },
+                .Having => {
+                    having_expression = self.parseExpression() catch 0;
+                },
+                .Qualify => {
+                    qualify_expression = self.parseExpression() catch 0;
                 },
                 .Limit => {
-                    current_clause = ClauseType.Limit;
-                    const maybe_limit = self.peek();
-                    if (maybe_limit.token_type == TokenType.Numeric) {
+                    if (self.peek().token_type == .Numeric) {
                         limit_expression = self.parsePrimary() catch 0;
                     } else {
                         break;
                     }
                 },
-                else => {},
             }
         }
 
@@ -1057,12 +1066,12 @@ test "parse minimal cte" {
     try std.testing.expect(testHarness(input, expected));
 }
 
-// test "implicit select" {
-//     const input = "xyx";
-//     const expected = "select * from xyz";
+test "implicit select" {
+    const input = "xyz";
+    const expected = "select * from xyz";
 
-//     try std.testing.expect(testHarness(input, expected));
-// }
+    try std.testing.expect(testHarness(input, expected));
+}
 
 test "select with column alias" {
     const input = "select 1 as xyz";
