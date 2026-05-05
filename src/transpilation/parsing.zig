@@ -47,6 +47,7 @@ pub const Expression = union(enum) {
     pub const Aliased = struct {
         expression: ExpressionID,
         alias_index: usize,
+        explicit_as: bool = true,
     };
 
     pub const JoinKind = enum { inner, left, right, full, cross };
@@ -147,7 +148,6 @@ pub const Expression = union(enum) {
 };
 
 const NullExpression = Expression{ .empty = undefined };
-
 
 // -- Parse summaries --
 
@@ -271,7 +271,7 @@ const MinimalParsedQuery = struct {
             },
             .aliased => |a| {
                 self.renderExpression(a.expression, builder);
-                builder.append(" as ");
+                builder.append(if (a.explicit_as) " as " else " ");
                 builder.append(self.string_buffer[a.alias_index].items);
             },
             .empty => {},
@@ -458,6 +458,24 @@ pub const Parser = struct {
     fn addExpression(self: *Parser, expr: Expression) !ExpressionID {
         try self.expressions.append(self.allocator, expr);
         return self.expressions.items.len - 1;
+    }
+
+    // Wraps expression_id in .aliased if the next token(s) form an alias.
+    // Handles both `table alias` (implicit) and `table as alias` (explicit).
+    fn parseOptionalAlias(self: *Parser, expression_id: ExpressionID) !ExpressionID {
+        const explicit_as = self.consume(.As);
+        const next = self.peek();
+        if (next.token_type == .Identifier) {
+            self.advance();
+            return try self.addExpression(.{
+                .aliased = .{
+                    .expression = expression_id,
+                    .alias_index = next.string_index,
+                    .explicit_as = explicit_as,
+                },
+            });
+        }
+        return expression_id;
     }
 
     // Parse a primary expression (literals, identifiers)
@@ -721,7 +739,8 @@ pub const Parser = struct {
                     elems.deinit(allocator);
                 },
                 .From => {
-                    from = self.parseExpression() catch 0;
+                    const table_expr = self.parseExpression() catch 0;
+                    from = try self.parseOptionalAlias(table_expr);
                 },
                 .Where => {
                     where = self.parseExpression() catch 0;
@@ -745,7 +764,8 @@ pub const Parser = struct {
                         .CrossJoin => .cross,
                         else => .inner,
                     };
-                    const table = self.parseExpression() catch 0;
+                    const raw_table = self.parseExpression() catch 0;
+                    const table = try self.parseOptionalAlias(raw_table);
                     const on_condition: ExpressionID = if (self.consume(.On))
                         self.parseExpression() catch 0
                     else
@@ -835,7 +855,8 @@ pub const Parser = struct {
                 },
                 .From => {
                     current_clause = ClauseType.From;
-                    from_expression = self.parseExpression() catch 0;
+                    const table_expr = self.parseExpression() catch 0;
+                    from_expression = try self.parseOptionalAlias(table_expr);
                 },
                 .Where => {
                     current_clause = ClauseType.Where;
@@ -863,7 +884,8 @@ pub const Parser = struct {
                         .CrossJoin => .cross,
                         else => .inner,
                     };
-                    const table = self.parseExpression() catch 0;
+                    const raw_table = self.parseExpression() catch 0;
+                    const table = try self.parseOptionalAlias(raw_table);
                     const on_condition: ExpressionID = if (self.consume(.On))
                         self.parseExpression() catch 0
                     else
@@ -1042,8 +1064,15 @@ test "parse minimal cte" {
 //     try std.testing.expect(testHarness(input, expected));
 // }
 
-test "select with alias" {
+test "select with column alias" {
     const input = "select 1 as xyz";
+    const expected = input;
+
+    try std.testing.expect(testHarness(input, expected));
+}
+
+test "select with table alias" {
+    const input = "select * from the_table c where c.id = 1";
     const expected = input;
 
     try std.testing.expect(testHarness(input, expected));
